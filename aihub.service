@@ -1,0 +1,11 @@
+[Unit]
+Description=AI Hub web page (port 8090): both PCs' AI models, temperatures and docs
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/Documents/aimon/aihub.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,997 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Hub</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23141820'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%2340ba4f' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%2373b3fa'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #0f1116; --panel: #151820; --panel-2: #1b1f28; --track: #2b3038; --line: #262b34;
+  --text: #e6edf2; --muted: #8c949e; --faint: #5d646e;
+  --green: #40ba4f; --amber: #db9e26; --red: #f7524a; --link: #73b3fa;
+  --start: #21578c; --start-h: #2a6aa8; --stop: #8c302e; --stop-h: #a53a37; --btn: #383d47; --btn-h: #444a56;
+  --shadow: 0 1px 0 rgba(255,255,255,.02) inset;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f3f5f8; --panel: #ffffff; --panel-2: #f6f8fb; --track: #e3e7ed; --line: #e6e9ee;
+    --text: #1a1f26; --muted: #5f6873; --faint: #9aa2ad;
+    --green: #2e9b3c; --amber: #b9800f; --red: #d93a32; --link: #1f6fd1;
+    --start: #2468b0; --start-h: #1f5b9b; --stop: #b23b37; --stop-h: #9c322f; --btn: #dfe3e9; --btn-h: #d2d7df;
+    --shadow: 0 1px 2px rgba(20,30,40,.06); color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f3f5f8; --panel: #ffffff; --panel-2: #f6f8fb; --track: #e3e7ed; --line: #e6e9ee;
+  --text: #1a1f26; --muted: #5f6873; --faint: #9aa2ad;
+  --green: #2e9b3c; --amber: #b9800f; --red: #d93a32; --link: #1f6fd1;
+  --start: #2468b0; --start-h: #1f5b9b; --stop: #b23b37; --stop-h: #9c322f; --btn: #dfe3e9; --btn-h: #d2d7df;
+  --shadow: 0 1px 2px rgba(20,30,40,.06); color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Ubuntu, Cantarell, sans-serif; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button { font: inherit; color: inherit; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Top bar */
+header { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+.bar { max-width: 1400px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 14px; }
+.brand { font-weight: 800; letter-spacing: .08em; font-size: 15px; white-space: nowrap; }
+nav { display: flex; gap: 4px; }
+nav button { background: none; border: 0; padding: 6px 12px; border-radius: 999px; color: var(--muted);
+  font-weight: 600; cursor: pointer; }
+nav button:hover { color: var(--text); background: var(--panel-2); }
+nav button[aria-selected="true"] { color: var(--text); background: var(--btn); }
+.bar .spacer { flex: 1; }
+.status { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.clock { font-weight: 700; color: var(--muted); }
+
+main { max-width: 1400px; margin: 0 auto; padding: 16px; }
+.view[hidden] { display: none !important; }
+
+/* Links strip */
+.links { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.link-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.link-label { color: var(--muted); font-size: 12px; font-weight: 600; margin-right: 2px; }
+.chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--text); font-weight: 600; font-size: 13px; }
+.chip:hover { text-decoration: none; border-color: var(--faint); }
+.chip small { color: var(--muted); font-weight: 500; }
+
+/* Machines */
+.machines { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 16px; align-items: start; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+.card-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px; }
+.card-head h2 { margin: 0; font-size: 17px; letter-spacing: .02em; }
+.card-head .host { color: var(--muted); font-size: 12px; }
+.badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; letter-spacing: .04em; }
+.badge.on { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+.badge.off { background: var(--track); color: var(--muted); }
+.card-head .right { margin-left: auto; color: var(--muted); font-size: 12px; text-align: right; }
+.section-label { font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
+
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.stat { background: var(--panel); padding: 10px 14px; min-width: 0; }
+.stat .v { font-size: 20px; font-weight: 700; }
+.stat .v small { font-size: 12px; color: var(--muted); font-weight: 600; }
+.stat .s { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meter { height: 5px; border-radius: 3px; background: var(--track); margin-top: 6px; overflow: hidden; }
+.meter i { display: block; height: 100%; border-radius: 3px; background: var(--green); transition: width .4s; }
+
+.gpus { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; padding: 14px 16px; }
+.gpu { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
+.gpu-top { display: flex; align-items: baseline; gap: 8px; }
+.gpu-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gpu-temp { margin-left: auto; font-size: 26px; font-weight: 800; line-height: 1; }
+.gpu-temp small { font-size: 13px; color: var(--muted); }
+.spark { width: 100%; height: 34px; display: block; margin: 6px 0 2px; }
+.gpu-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.gpu-row b { color: var(--text); font-weight: 600; }
+.users { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+.users span { font-size: 11px; background: var(--track); border-radius: 6px; padding: 1px 6px; color: var(--text); }
+
+.models-head { display: flex; align-items: center; gap: 8px; padding: 6px 16px 6px; }
+.models-head .right { margin-left: auto; display: flex; gap: 6px; }
+.rows { padding: 0 8px 10px; }
+.row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto auto; align-items: center; gap: 10px;
+  padding: 8px; border-top: 1px solid var(--line); }
+.row.sub { padding-left: 26px; border-top: 0; padding-top: 4px; padding-bottom: 4px; }
+.row:first-child { border-top: 0; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--faint); justify-self: center; }
+.row.sub .dot { width: 8px; height: 8px; }
+.dot.on { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 20%, transparent); }
+.dot.busy { background: var(--amber); animation: pulse 1s infinite alternate; }
+.dot.failed { background: var(--red); }
+@keyframes pulse { to { opacity: .35; } }
+.rname { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row.sub .rname { font-weight: 600; font-size: 13px; }
+.rsub { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rsub.failed { color: var(--red); }
+.rmem { color: var(--text); font-size: 12px; white-space: nowrap; text-align: right; }
+.rmem small { color: var(--muted); }
+.btns { display: flex; gap: 6px; }
+.pill { border: 0; border-radius: 999px; padding: 4px 12px; font-size: 11px; font-weight: 800; letter-spacing: .05em;
+  cursor: pointer; color: #fff; min-width: 62px; }
+.pill.start { background: var(--start); } .pill.start:hover { background: var(--start-h); }
+.pill.stop { background: var(--stop); } .pill.stop:hover { background: var(--stop-h); }
+.pill.plain { background: var(--btn); color: var(--text); min-width: 0; } .pill.plain:hover { background: var(--btn-h); }
+.pill:disabled { opacity: .5; cursor: default; }
+.icon-btn { min-width: 0; padding: 4px 8px; }
+.local-only { font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 4px; font-weight: 600; }
+
+.offline { padding: 26px 16px 22px; text-align: center; color: var(--muted); }
+.offline p { margin: 0 0 14px; }
+.offline .pill { padding: 8px 18px; font-size: 12px; }
+.err { color: var(--red); padding: 10px 16px; font-size: 13px; }
+
+/* Problems */
+.badge.bad { background: color-mix(in srgb, var(--red) 18%, transparent); color: var(--red); }
+.badge.warn { background: color-mix(in srgb, var(--amber) 20%, transparent); color: var(--amber); }
+.problems { padding: 0 16px 12px; display: grid; gap: 8px; }
+.problem { border: 1px solid color-mix(in srgb, var(--amber) 45%, var(--line)); border-left: 4px solid var(--amber);
+  background: color-mix(in srgb, var(--amber) 7%, var(--panel)); border-radius: 10px; padding: 9px 12px; }
+.problem.error { border-color: color-mix(in srgb, var(--red) 45%, var(--line)); border-left-color: var(--red);
+  background: color-mix(in srgb, var(--red) 7%, var(--panel)); }
+.problem .ptitle { font-weight: 700; display: flex; gap: 8px; align-items: baseline; }
+.problem .ptitle .when { margin-left: auto; color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
+.problem p { margin: 4px 0 0; font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.problem .pfix { color: var(--muted); }
+.problem .pfix b { color: var(--text); }
+.earlier { padding: 0 16px 12px; font-size: 12px; color: var(--muted); }
+.earlier summary { cursor: pointer; font-weight: 600; }
+.earlier ul { margin: 6px 0 0; padding-left: 18px; }
+.gpu.dead { border-color: var(--red); background: color-mix(in srgb, var(--red) 7%, var(--panel-2)); }
+.gpu.dead .gpu-temp { color: var(--red); font-size: 15px; }
+.gpu.dead p { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+#alert { display: none; border: 0; border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 800; cursor: pointer;
+  background: var(--red); color: #fff; white-space: nowrap; }
+#alert.warn { background: var(--amber); }
+#alert.show { display: inline-block; }
+@media (max-width: 600px) { .problem .ptitle { flex-wrap: wrap; } .problem .ptitle .when { margin-left: 0; } }
+
+/* Docs */
+.docs { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; }
+.doc-list { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 10px; position: sticky; top: 70px; max-height: calc(100vh - 90px); overflow: auto; }
+.doc-list input { width: 100%; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit; margin-bottom: 6px; }
+.doc-group { margin: 12px 6px 4px; }
+.doc { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+.doc:hover { background: var(--panel-2); }
+.doc[aria-current="true"] { background: var(--btn); }
+.doc b { display: block; font-size: 13px; }
+.doc span { display: block; color: var(--muted); font-size: 12px; }
+.doc b span { display: inline; }
+.kind { font-size: 10px; font-weight: 800; letter-spacing: .05em; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 6px; vertical-align: 1px; }
+.viewer { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; min-height: 60vh; overflow: hidden; }
+.viewer-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.viewer-head h2 { margin: 0; font-size: 16px; flex: 1; min-width: 200px; }
+.viewer iframe { width: 100%; height: calc(100vh - 170px); border: 0; display: block; background: #fff; }
+.viewer img { max-width: 100%; display: block; margin: 0 auto; }
+.prose { padding: 8px 28px 28px; max-width: 860px; }
+.prose h1 { font-size: 24px; } .prose h2 { font-size: 19px; margin-top: 28px; } .prose h3 { font-size: 16px; }
+.prose code { background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; font-size: 13px; }
+.prose pre { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; overflow: auto; }
+.prose pre code { border: 0; padding: 0; background: none; }
+.prose table { border-collapse: collapse; display: block; overflow-x: auto; }
+.prose th, .prose td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+.prose th { background: var(--panel-2); }
+.prose blockquote { margin: 0; padding: 4px 14px; border-left: 3px solid var(--link); color: var(--muted); }
+.empty { color: var(--muted); padding: 40px 20px; text-align: center; }
+/* Docs: filters, tags, importance, comments, adding */
+.doc-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.doc-tools select { flex: 1 1 100px; min-width: 0; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; font: inherit; font-size: 13px; }
+.doc-tools .pill { padding: 6px 14px; font-size: 12px; }
+.tagbar { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 4px 4px; }
+.tag { font-size: 11px; font-weight: 600; background: var(--track); color: var(--text); border: 0; border-radius: 999px; padding: 1px 8px; cursor: pointer; }
+.tag[aria-pressed="true"] { background: var(--start); color: #fff; }
+.doc .tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.doc .tags i { font-style: normal; font-size: 10px; font-weight: 600; background: var(--track); border-radius: 999px; padding: 0 6px; color: var(--muted); }
+.imp { display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: .04em; border-radius: 4px; padding: 0 5px; margin-right: 6px; vertical-align: 1px; }
+.imp.high { background: color-mix(in srgb, var(--red) 20%, transparent); color: var(--red); }
+.imp.low { background: var(--track); color: var(--muted); }
+.ccount { font-size: 11px; color: var(--muted); font-weight: 600; margin-left: 6px; }
+.viewer-head .pill[aria-pressed="true"] { background: var(--start); color: #fff; }
+.vpanel { border-bottom: 1px solid var(--line); background: var(--panel-2); padding: 14px 16px; }
+.vpanel[hidden] { display: none; }
+.form { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px 12px; align-items: center; max-width: 760px; }
+.form label { font-weight: 600; font-size: 13px; color: var(--muted); }
+.form input, .form select, .form textarea, .cbox textarea { width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; font: inherit; font-size: 14px; }
+.form textarea { min-height: 220px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.form .full { grid-column: 1 / -1; }
+.form .hint { color: var(--faint); font-size: 12px; }
+.form-btns { display: flex; gap: 8px; margin-top: 12px; }
+.form-btns .pill { padding: 7px 16px; font-size: 12px; }
+.comments { max-width: 760px; }
+.comment { border-top: 1px solid var(--line); padding: 8px 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; }
+.comment:first-child { border-top: 0; }
+.comment .when { color: var(--muted); font-size: 12px; }
+.comment .txt { grid-column: 1 / -1; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment button { background: none; border: 0; color: var(--faint); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; }
+.comment button:hover { color: var(--red); }
+.cbox { display: flex; gap: 8px; margin-top: 10px; align-items: flex-end; }
+.cbox textarea { min-height: 60px; resize: vertical; }
+.cbox .pill { padding: 8px 16px; font-size: 12px; }
+.addview { padding: 16px; }
+.addview h2 { margin: 0 0 4px; font-size: 16px; }
+.addview > p { margin: 0 0 14px; color: var(--muted); }
+.modes { display: flex; gap: 4px; margin-bottom: 12px; }
+.modes button { background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; cursor: pointer; font-weight: 600; color: var(--muted); }
+.modes button[aria-pressed="true"] { background: var(--btn); color: var(--text); }
+.drop { border: 2px dashed var(--faint); border-radius: 14px; padding: 30px 16px; text-align: center; color: var(--muted); cursor: pointer; margin-bottom: 14px; max-width: 760px; }
+.drop b { color: var(--text); }
+.drop.over, .docs.over .doc-list { border-color: var(--link); background: color-mix(in srgb, var(--link) 10%, transparent); }
+.drop .picked { color: var(--text); font-weight: 600; margin-top: 6px; }
+
+/* Options */
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; align-items: start; }
+.opts .card { padding: 16px; }
+.opts h2 { margin: 0 0 12px; font-size: 16px; }
+.opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.opt:first-of-type { border-top: 0; }
+.opt label { font-weight: 600; } .opt p { margin: 2px 0 0; color: var(--muted); font-size: 12px; font-weight: 400; }
+.opt select, .opt input[type=number] { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; }
+.opt input[type=number] { width: 80px; }
+.hint-muted { color: var(--muted); font-size: 13px; margin: 6px 0; }
+.opt .pnow { color: var(--faint); }
+.opt .perr { color: var(--red); }
+.switch { position: relative; width: 46px; height: 26px; flex: none; }
+.switch input { opacity: 0; width: 100%; height: 100%; margin: 0; position: absolute; cursor: pointer; z-index: 1; }
+.switch span { position: absolute; inset: 0; border-radius: 999px; background: var(--btn); border: 1px solid var(--line); transition: background .15s; }
+.switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--text); transition: transform .15s; }
+.switch input:checked + span { background: var(--green); }
+.switch input:checked + span::after { transform: translateX(20px); }
+.switch input:focus-visible + span { outline: 2px solid var(--link); outline-offset: 2px; }
+.switch input:disabled + span { opacity: .5; }
+.help { color: var(--text); } .help h3 { font-size: 14px; margin: 16px 0 4px; } .help p, .help li { color: var(--muted); }
+.help ul { padding-left: 18px; margin: 4px 0; }
+
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 12px; padding: 10px 16px; box-shadow: 0 8px 30px rgba(0,0,0,.35); font-weight: 600; z-index: 20; max-width: calc(100vw - 32px); }
+.toast.bad { border-color: var(--red); color: var(--red); }
+
+@media (max-width: 760px) {
+  .bar { flex-wrap: wrap; gap: 8px 12px; }
+  nav { order: 3; width: 100%; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .docs { grid-template-columns: 1fr; }
+  .doc-list { position: static; max-height: none; }
+  .viewer iframe { height: 75vh; }
+  .prose { padding: 4px 16px 20px; }
+  .row { grid-template-columns: 18px minmax(0, 1fr) auto; }
+  .rmem { grid-column: 2; text-align: left; order: 3; }
+  .gpus { padding: 12px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand">AI HUB</div>
+    <nav role="tablist">
+      <button role="tab" data-view="overview" aria-selected="true">Overview</button>
+      <button role="tab" data-view="docs">Docs</button>
+      <button role="tab" data-view="options">Options &amp; help</button>
+    </nav>
+    <div class="spacer"></div>
+    <button id="alert" title="Show the problems"></button>
+    <div class="status"><span class="dot" id="live"></span><span id="updated">Connecting…</span></div>
+    <div class="clock num" id="clock"></div>
+  </div>
+</header>
+
+<main>
+  <section class="view" id="view-overview">
+    <div class="links" id="links"></div>
+    <div class="machines" id="machines"></div>
+  </section>
+
+  <section class="view" id="view-docs" hidden>
+    <div class="docs">
+      <div class="doc-list">
+        <input type="search" id="doc-search" placeholder="Search docs, tags and comments" aria-label="Search docs">
+        <div class="doc-tools">
+          <select id="doc-imp" aria-label="Show"><option value="">All docs</option><option value="high">Important only</option><option value="commented">With comments</option></select>
+          <select id="doc-sort" aria-label="Sort"><option value="new">Newest first</option><option value="old">Oldest first</option><option value="az">A–Z</option><option value="imp">Important first</option></select>
+          <button class="pill start" id="doc-add" title="Drop in a PDF, Markdown or text file, or paste a text block">＋ Add</button>
+        </div>
+        <div class="tagbar" id="doc-tags"></div>
+        <div id="doc-list"></div>
+      </div>
+      <div class="viewer" id="viewer"><div class="empty">Pick a document on the left.</div></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-options" hidden>
+    <div class="opts">
+      <div class="card">
+        <h2>Options</h2>
+        <p class="section-label" style="margin:0 0 4px">Saved in this browser</p>
+        <div class="opt"><div><label for="o-refresh">Update every</label><p>How often the page asks for new readings.</p></div>
+          <select id="o-refresh"><option value="1000">1 s</option><option value="2000">2 s</option><option value="5000">5 s</option><option value="10000">10 s</option></select></div>
+        <div class="opt"><div><label for="o-stopped">Show stopped containers</label><p>Off hides containers that aren't running.</p></div>
+          <input type="checkbox" id="o-stopped"></div>
+        <div class="opt"><div><label for="o-models">Show models that aren't loaded</label><p>Off lists only the Ollama models in memory.</p></div>
+          <input type="checkbox" id="o-models"></div>
+        <div class="opt"><div><label for="o-confirm">Ask before stopping a container</label><p>Stops a misplaced tap on a phone from shutting down Open WebUI or Strata.</p></div>
+          <input type="checkbox" id="o-confirm"></div>
+        <div class="opt"><div><label for="o-warn">Warn this far below a card's limit</label><p>Temperatures turn amber this many °C below the card's own slowdown point.</p></div>
+          <input type="number" id="o-warn" min="3" max="40" step="1"></div>
+        <div class="opt"><div><label for="o-theme">Theme</label></div>
+          <select id="o-theme"><option value="auto">Match system</option><option value="dark">Dark</option><option value="light">Light</option></select></div>
+        <div class="opt"><div><label for="o-name">Your name</label><p>Shown on comments you add to docs. Blank uses this PC's name.</p></div>
+          <input type="text" id="o-name" maxlength="40" style="width:150px;background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit"></div>
+      </div>
+      <div class="card" id="pc-settings">
+        <h2>PC settings</h2>
+        <p class="section-label" style="margin:0 0 4px">Saved on that PC</p>
+        <div id="pc-settings-list"><p class="hint-muted">Loading…</p></div>
+      </div>
+      <div class="card help">
+        <h2>How it works</h2>
+        <p>This page shows what the <b>AI Model Monitor</b> panel (aimon) shows, for both PCs at once, plus temperatures and the docs. aimon's <b>WEB ↗</b> button opens it.</p>
+        <h3>Each PC</h3>
+        <ul>
+          <li>A small program, <b>AI Hub</b>, runs on each PC on port 8090. The server's copy is the one to bookmark: <a href="http://192.168.50.235:8090/">192.168.50.235:8090</a> (also <a href="http://server.local:8090/">server.local:8090</a> from the main PC).</li>
+          <li>When the main PC is off or asleep, its card says so and offers <b>Wake</b>, which sends a Wake-on-LAN signal from the server.</li>
+          <li>The top of each card shows CPU temperature and load, RAM and the system drive. Under it is one tile per graphics card: temperature with the last 5 minutes as a line, how busy it is, VRAM, power, fan, and which containers are using it.</li>
+        </ul>
+        <h3>Problems</h3>
+        <ul>
+          <li>Each PC checks itself every 30 seconds and lists anything that needs you at the top of its card, in red (broken) or amber (worth a look), with what to do. A red or amber button at the top of the page says how many there are; click it to jump to them. The browser tab title gets a ⚠ too.</li>
+          <li>It looks for: a graphics card that stopped responding (or NVIDIA driver errors), floods of PCIe errors, containers that keep restarting, are unhealthy, crashed or were killed for memory, bad lines in container logs (out of memory, too many open files, lost graphics card, disk full), a drive over 90% full, and a CPU or card at its slowdown temperature.</li>
+          <li><b>⏻ Restart</b> (next to the PC's uptime) restarts that PC after you type its name. It only shows on PCs whose AI Hub config has <code>"allow_reboot": true</code> and where sudo lets it run <code>systemctl reboot</code> without a password; for now that's the server. A card that has stopped responding gets a <b>RESTART NOW</b> button in its problem box too.</li>
+          <li><b>PC settings</b> (on this tab) holds switches saved on the PC itself. <b>Limit … to 2.5 GT/s</b> caps a graphics card's slot at the slowest PCIe speed, for a card whose link keeps dropping out (the server's GTX 1650 in the lower slot). It's applied again every time AI Hub starts, so it lasts across restarts.</li>
+          <li><b>Restart … by itself</b> restarts that PC when a graphics card stops responding, after it has been quiet (cards under 10% busy, CPU under 30%) for 3 minutes, or after 30 minutes whatever. It leaves a PC alone for 5 minutes after it starts and stops after 3 automatic restarts in a day, so a dead card can't cause a restart loop.</li>
+          <li>Fixed problems move to <b>Earlier problems</b> under the list for a week, so you can see what happened while you were away.</li>
+        </ul>
+        <h3>Models and containers</h3>
+        <ul>
+          <li>The rows work like aimon. <b>START</b> and <b>STOP</b> run <code>docker start</code> and <code>docker stop</code>. Under an Ollama container, START loads a model and keeps it loaded, and STOP unloads it.</li>
+          <li><b>↻</b> restarts a running container. <b>Unload all</b> frees every loaded model on that PC and leaves the containers running.</li>
+          <li>Dots: green is running or loaded, amber is starting or stopping, grey is off, red means the last action failed (the reason shows under the name).</li>
+          <li>Numbers on the right are <b>VRAM · RAM</b> in GB.</li>
+          <li>A blue name opens that container's web page. <span class="local-only">this PC only</span> means Docker only lets that PC itself open it, for example Strata's chat page on the main PC.</li>
+        </ul>
+        <h3>Docs</h3>
+        <p>The Docs tab lists everything in <code>~/Documents/ai-docs</code> on the server.</p>
+        <ul>
+          <li><b>＋ Add</b> takes a PDF, Markdown (.md) or text file: drop it on the box (or anywhere on the Docs tab), or pick it. <b>Paste text</b> saves a typed or pasted block as a new Markdown or text doc. Up to 25 MB; a name that's taken gets "(2)" added, nothing is overwritten.</li>
+          <li><b>✎ Details</b> on an open doc changes its title, description, category (the group it's listed under; type a new one to make it), importance and tags.</li>
+          <li><b>Important</b> docs show a red mark, <b>Low</b> ones grey. The first drop-down above the list shows only important or commented docs; a tag under it shows only docs with that tag.</li>
+          <li><b>Sort</b> orders each category: newest first (the default; the date is when the file was added or last changed), oldest first, A–Z, or important first. Comments always show newest first.</li>
+          <li><b>💬 Comments</b> are notes on a doc, shown with who and when. The name comes from <b>Your name</b> below, or else the PC it was written on.</li>
+          <li>You can still copy files into the folder by hand; titles, categories, tags and comments live in its <code>index.json</code>.</li>
+        </ul>
+        <h3>Who can open it</h3>
+        <p>Only this PC, the home network and Tailscale devices. Anything else gets "Not allowed".</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const GIB = 1024 ** 3;
+
+/* ---------- settings (this browser only) ---------- */
+const DEFAULT_OPTS = { refresh: 2000, stopped: true, models: true, confirm: true, warn: 12, theme: "auto", view: "overview", name: "", docSort: "new" };
+let opts = { ...DEFAULT_OPTS };
+try { Object.assign(opts, JSON.parse(localStorage.getItem("aihub-opts") || "{}")); } catch (e) {}
+function saveOpts() { try { localStorage.setItem("aihub-opts", JSON.stringify(opts)); } catch (e) {} }
+function applyTheme() {
+  if (opts.theme === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.dataset.theme = opts.theme;
+}
+applyTheme();
+
+/* ---------- tabs ---------- */
+function showView(name) {
+  opts.view = name; saveOpts();
+  document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === name));
+  document.querySelectorAll(".view").forEach(v => v.hidden = v.id !== "view-" + name);
+  if (name === "docs") loadDocs();
+}
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => showView(b.dataset.view));
+
+/* ---------- formatting ---------- */
+const gb = b => b == null ? "–" : (b / GIB).toFixed(1);
+function dur(s) {
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+}
+function level(frac) { return frac >= .9 ? "var(--red)" : frac >= .7 ? "var(--amber)" : "var(--green)"; }
+function tempColour(t, limit) {
+  if (t == null) return "var(--muted)";
+  const lim = limit || 85;
+  return t >= lim - 3 ? "var(--red)" : t >= lim - opts.warn ? "var(--amber)" : "var(--green)";
+}
+function meter(used, total) {
+  const f = total ? Math.min(1, used / total) : 0;
+  return `<div class="meter"><i style="width:${(f * 100).toFixed(1)}%;background:${level(f)}"></i></div>`;
+}
+
+/* ---------- temperature history for sparklines ---------- */
+const tempHist = {};   // key -> [temps], last 5 minutes
+function remember(key, t) {
+  const h = tempHist[key] ||= [];
+  const n = Math.round(300000 / opts.refresh);
+  if (t != null) h.push(t);
+  while (h.length > n) h.shift();
+  return h;
+}
+function spark(h, colour) {
+  if (h.length < 2) return `<svg class="spark" viewBox="0 0 100 34" preserveAspectRatio="none"></svg>`;
+  const lo = Math.min(...h) - 2, hi = Math.max(...h) + 2;
+  const pts = h.map((t, i) => `${(i / (h.length - 1) * 100).toFixed(2)},${(32 - (t - lo) / (hi - lo) * 30).toFixed(2)}`).join(" ");
+  return `<svg class="spark" viewBox="0 0 100 34" preserveAspectRatio="none" aria-label="Temperature over the last 5 minutes, ${Math.round(lo + 2)} to ${Math.round(hi - 2)} °C">
+    <polyline points="${pts}" fill="none" stroke="${colour}" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>`;
+}
+
+/* ---------- rendering ---------- */
+let state = null, lastOk = 0;
+
+function renderLinks(links) {
+  // Links without a "group" come first; each group (e.g. the Tailscale https links) gets its own labelled row.
+  const chip = l => `
+    <a class="chip" href="${esc(l.url)}" target="_blank" rel="noopener" title="${esc(l.url)}">
+      <span class="dot ${l.up ? "on" : l.up === false ? "failed" : ""}"></span>${esc(l.name)}
+      ${l.note ? `<small>${esc(l.note)}</small>` : ""}</a>`;
+  const groups = [];
+  for (const l of links) {
+    const g = l.group || "";
+    let row = groups.find(x => x.name === g);
+    if (!row) groups.push(row = { name: g, links: [] });
+    row.links.push(l);
+  }
+  groups.sort((a, b) => (a.name ? 1 : 0) - (b.name ? 1 : 0));
+  $("#links").innerHTML = groups.map(g => `
+    <div class="link-row">${g.name ? `<span class="link-label">${esc(g.name)}</span>` : ""}${g.links.map(chip).join("")}</div>`).join("");
+}
+
+function renderGpu(m, g) {
+  const key = `${m.name}:${g.uuid}`;
+  const colour = tempColour(g.temp, g.slowdown);
+  const h = remember(key, g.temp);
+  const users = (g.users || []).map(u => `<span>${esc(u.name)} · ${(u.mem / 1024).toFixed(1)} GB</span>`).join("");
+  return `<div class="gpu">
+    <div class="gpu-top"><span class="gpu-name" title="${esc(g.name)}">${esc(g.name)}</span>
+      <span class="gpu-temp num" style="color:${colour}">${g.temp ?? "–"}<small>°C</small></span></div>
+    ${spark(h, colour)}
+    <div class="gpu-row"><span>Busy <b class="num">${g.util ?? "–"}%</b></span><span>Fan <b class="num">${g.fan ?? "–"}%</b></span>
+      <span>Power <b class="num">${g.power != null ? Math.round(g.power) : "–"}${g.power_limit ? " / " + Math.round(g.power_limit) : ""} W</b></span></div>
+    <div class="gpu-row"><span>VRAM</span><b class="num">${(g.mem_used / 1024).toFixed(1)} / ${(g.mem_total / 1024).toFixed(0)} GB</b></div>
+    ${meter(g.mem_used, g.mem_total)}
+    <div class="gpu-row"><span>Slows down at</span><b class="num">${g.slowdown ? Math.round(g.slowdown) + " °C" : "–"}</b></div>
+    ${users ? `<div class="users">${users}</div>` : ""}
+  </div>`;
+}
+
+function rowVisible(r) {
+  if (r.kind === "docker" && r.state === "off" && !opts.stopped && !r.busy && !r.failed) return false;
+  if (r.kind === "ollama" && r.state === "off" && !opts.models && !r.busy && !r.failed) return false;
+  return true;
+}
+
+function renderRow(m, r) {
+  const dot = r.failed ? "failed" : r.state;
+  const label = r.busy ? "…" : r.kind === "comfy" ? "UNLOAD" : r.state === "off" ? "START" : "STOP";
+  const cls = r.busy ? "plain" : label === "START" ? "start" : "stop";
+  const action = label === "START" ? "start" : "stop";
+  let name = esc(r.name);
+  if (r.url && !r.host_off) name = `<a href="${esc(r.url)}" target="_blank" rel="noopener" title="Open ${esc(r.url)}">${name} ↗</a>`;
+  if (r.url && r.local_only) name += `<span class="local-only" title="Docker only lets ${esc(m.name)} itself open this page">this PC only</span>`;
+  const mem = r.vram || r.ram ? `${gb(r.vram)} · ${gb(r.ram)} <small>GB</small>` : "";
+  const restart = r.kind === "docker" && r.state === "on" && !r.busy
+    ? `<button class="pill plain icon-btn" title="Restart ${esc(r.name)}" data-act="restart" data-key="${esc(r.key)}" data-m="${esc(m.name)}" data-name="${esc(r.name)}">↻</button>` : "";
+  return `<div class="row ${r.level ? "sub" : ""}" title="${esc(r.tip || "")}">
+    <span class="dot ${dot}"></span>
+    <div style="min-width:0"><div class="rname">${name}</div><div class="rsub ${r.failed ? "failed" : ""}">${esc(r.sub)}</div></div>
+    <div class="rmem num">${mem}</div>
+    <div class="btns">${restart}<button class="pill ${cls}" ${r.busy ? "disabled" : ""} data-act="${action}" data-key="${esc(r.key)}"
+      data-m="${esc(m.name)}" data-name="${esc(r.name)}" data-kind="${r.kind}">${label}</button></div>
+  </div>`;
+}
+
+function ago(t) {
+  const s = Date.now() / 1000 - t;
+  const clock = new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (s < 90) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago (${clock})`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ${Math.round(s % 3600 / 60)} min ago (${clock})`;
+  return new Date(t * 1000).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+const earlierOpen = new Set();
+function renderProblems(m) {
+  const list = m.problems || [];
+  const now = list.map(p => `<div class="problem ${p.level === "error" ? "error" : ""}" id="p-${esc(m.name + p.id).replace(/[^\w-]/g, "_")}">
+      <div class="ptitle"><span>${p.level === "error" ? "⛔" : "⚠️"} ${esc(p.title)}</span><span class="when">${p.since ? "since " + ago(p.since) : ""}</span></div>
+      <p>${esc(p.detail)}</p>${p.fix ? `<p class="pfix"><b>What to do:</b> ${esc(p.fix)}</p>` : ""}
+      ${p.kind === "gpu_missing" && m.auto_restart && m.auto_restart.on ? `<p class="pfix"><b>Automatic restart is on.</b> ${esc(m.auto_restart.status || "")}</p>` : ""}
+      ${p.kind === "gpu_missing" && m.can_reboot ? `<p><button class="pill stop" data-reboot="${esc(m.name)}">RESTART ${esc(m.name.toUpperCase())} NOW</button></p>` : ""}</div>`).join("");
+  const past = (m.history || []).filter(h => Date.now() / 1000 - h.cleared < 7 * 86400);
+  const earlier = past.length ? `<details class="earlier" data-earlier="${esc(m.name)}" ${earlierOpen.has(m.name) ? "open" : ""}><summary>Earlier problems, now cleared (${past.length})</summary><ul>${past.map(h =>
+      `<li>${h.level === "error" ? "⛔" : "⚠️"} ${esc(h.title)}: ${ago(h.since)}, cleared ${ago(h.cleared)}</li>`).join("")}</ul></details>` : "";
+  return (now ? `<div class="problems">${now}</div>` : "") + earlier;
+}
+function renderDeadGpu(p) {
+  return `<div class="gpu dead"><div class="gpu-top"><span class="gpu-name">${esc(p.name)}</span><span class="gpu-temp">NOT RESPONDING</span></div>
+    <p>Slot ${esc(p.bus)}. See the problem above: the PC needs a restart to get it back.</p></div>`;
+}
+
+function problemBadge(m) {
+  const list = m.problems || [];
+  if (!list.length) return "";
+  const bad = list.some(p => p.level === "error");
+  return `<span class="badge ${bad ? "bad" : "warn"}">${list.length} PROBLEM${list.length > 1 ? "S" : ""}</span>`;
+}
+const gpuTiles = m => [...(m.gpus || []).map(g => renderGpu(m, g)),
+  ...(m.problems || []).filter(p => p.kind === "gpu_missing").map(renderDeadGpu)];
+
+function renderMachine(m) {
+  if (!m.online) {
+    return `<div class="card"><div class="card-head"><h2>${esc(m.name)}</h2><span class="badge off">OFF / ASLEEP</span></div>
+      <div class="offline"><p>Can't reach ${esc(m.name)}. It's probably off or asleep.</p>
+      ${m.can_wake ? `<button class="pill start" data-wake="${esc(m.name)}">WAKE ${esc(m.name.toUpperCase())}</button>
+        <p style="margin-top:12px;font-size:12px">Sends Wake-on-LAN from the server. Takes a minute or two to boot.</p>` : ""}</div></div>`;
+  }
+  const c = m.cpu || {};
+  const cpuCol = tempColour(c.temp, c.high);
+  const rows = (m.rows || []).filter(rowVisible);
+  const loaded = (m.rows || []).some(r => r.kind !== "docker" && r.state === "on");
+  return `<div class="card">
+    <div class="card-head"><h2>${esc(m.name)}</h2><span class="badge on">ONLINE</span>${problemBadge(m)}
+      <div class="right"><span class="host">${esc(m.host)}</span><br>up ${dur(m.uptime)}</div>
+      ${m.can_reboot ? `<button class="pill plain icon-btn" data-reboot="${esc(m.name)}" title="Restart ${esc(m.name)}">⏻ Restart</button>` : ""}</div>
+    ${renderProblems(m)}
+    <div class="stats">
+      <div class="stat"><div class="section-label">CPU temp</div><div class="v num" style="color:${cpuCol}">${c.temp != null ? Math.round(c.temp) : "–"}<small>°C</small></div>
+        <div class="s">${c.high ? "high at " + Math.round(c.high) + " °C" : ""}</div></div>
+      <div class="stat"><div class="section-label">CPU</div><div class="v num">${c.pct != null ? Math.round(c.pct) : "–"}<small>%</small></div>
+        <div class="s num">load ${m.load ? m.load.map(x => x.toFixed(1)).join(" ") : "–"}</div></div>
+      <div class="stat"><div class="section-label">RAM</div><div class="v num">${gb(m.ram.used)}<small> / ${(m.ram.total / GIB).toFixed(0)} GB</small></div>${meter(m.ram.used, m.ram.total)}</div>
+      <div class="stat"><div class="section-label">Drive</div><div class="v num">${(m.disk.used / 1e9).toFixed(0)}<small> / ${(m.disk.total / 1e9).toFixed(0)} GB</small></div>${meter(m.disk.used, m.disk.total)}</div>
+    </div>
+    ${gpuTiles(m).length ? `<div class="gpus">${gpuTiles(m).join("")}</div>` : `<div class="err">No graphics card readings (nvidia-smi didn't answer).</div>`}
+    <div class="models-head"><span class="section-label">AI models &amp; containers</span>
+      <div class="right"><button class="pill plain" data-unload="${esc(m.name)}" ${loaded ? "" : "disabled"}>Unload all</button></div></div>
+    ${m.error ? `<div class="err">${esc(m.error)}</div>` : ""}
+    <div class="rows">${rows.map(r => renderRow(m, r)).join("") || `<div class="empty">Nothing to show.</div>`}</div>
+  </div>`;
+}
+
+function renderPcSettings() {
+  const box = $("#pc-settings-list");
+  const items = state.machines.filter(m => m.online).flatMap(m => (m.pcie_caps || []).map(c => ({ ...c, machine: m.name })));
+  const off = state.machines.filter(m => !m.online).map(m => m.name);
+  if (box.contains(document.activeElement) && box.dataset.busy) return;
+  const autos = state.machines.filter(m => m.online && m.auto_restart).map(m => {
+    const a = m.auto_restart, id = "auto-" + esc(m.name).replace(/[^\w-]/g, "_");
+    return `<div class="opt"><div><label for="${id}">Restart ${esc(m.name)} by itself when a card stops responding</label>
+      <p>Only a restart brings a card back. It waits until ${esc(m.name)} has been quiet for 3 minutes (no card or CPU busy) so it doesn't cut off a chat or document, or 30 minutes at most. Never in the first 5 minutes after starting, and no more than 3 times a day.</p>
+      ${a.status ? `<p class="pnow">${esc(a.status)}</p>` : ""}${a.count_24h ? `<p class="pnow">Restarted by itself ${a.count_24h} time${a.count_24h > 1 ? "s" : ""} in the last 24 hours.</p>` : ""}</div>
+      <label class="switch" title="${a.on ? "On" : "Off"}"><input type="checkbox" role="switch" id="${id}" data-auto="${esc(m.name)}" ${a.on ? "checked" : ""}><span></span></label></div>`;
+  });
+  box.innerHTML = (autos.join("") + items.map(c => {
+    const now = c.speed ? `Now running at ${esc(c.speed)} ${esc(c.width || "")}; the slot can do ${esc(c.max_speed || "?")}.` : "";
+    return `<div class="opt"><div><label for="pc-${esc(c.machine + c.port).replace(/[^\w-]/g, "_")}">Limit ${esc(c.label)} to ${esc(c.cap_speed || "Gen" + c.gen)}</label>
+      <p>${esc(c.machine)}, slot ${esc(c.port)}. Stops a card on a shaky link from dropping off the bus, at the cost of speed. Stays set after restarts.</p>
+      ${now ? `<p class="pnow">${now}</p>` : ""}${c.error ? `<p class="perr">${esc(c.error)}</p>` : ""}</div>
+      <label class="switch" title="${c.on ? "On" : "Off"}"><input type="checkbox" role="switch" id="pc-${esc(c.machine + c.port).replace(/[^\w-]/g, "_")}"
+        data-pcie="${esc(c.port)}" data-m="${esc(c.machine)}" data-label="${esc(c.label)}" ${c.on ? "checked" : ""}><span></span></label></div>`;
+  }).join("") || `<p class="hint-muted">No PC has settings here.</p>`) +
+    (off.length ? `<p class="hint-muted">${esc(off.join(", "))} ${off.length > 1 ? "are" : "is"} off, so ${off.length > 1 ? "their" : "its"} settings can't be shown.</p>` : "");
+}
+
+function render() {
+  if (!state) return;
+  renderPcSettings();
+  renderLinks(state.links || []);
+  $("#machines").innerHTML = state.machines.map(renderMachine).join("");
+  const all = state.machines.flatMap(m => (m.problems || []).map(p => ({ ...p, machine: m.name })));
+  const a = $("#alert");
+  a.className = all.length ? (all.some(p => p.level === "error") ? "show" : "show warn") : "";
+  a.textContent = all.length === 1 ? `⚠ ${all[0].machine}: ${all[0].title}` : `⚠ ${all.length} problems`;
+  document.title = (all.length ? `⚠ (${all.length}) ` : "") + "AI Hub";
+}
+
+/* ---------- actions ---------- */
+let toastTimer;
+function toast(msg, bad) {
+  let t = $(".toast");
+  if (!t) { t = document.createElement("div"); t.className = "toast"; t.setAttribute("role", "status"); document.body.append(t); }
+  t.textContent = msg; t.classList.toggle("bad", !!bad);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), 4000);
+}
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.ok === false) throw new Error(j.error || r.statusText);
+  return j;
+}
+$("#machines").addEventListener("click", async e => {
+  const b = e.target.closest("button");
+  if (!b || b.disabled) return;
+  try {
+    if (b.dataset.reboot) {
+      const name = b.dataset.reboot;
+      const typed = prompt(`Restart ${name}?\n\nEverything running on it stops (chats, document reading, pictures) and comes back after a couple of minutes.\n\nType ${name} to confirm:`);
+      if (typed == null) return;
+      b.disabled = true;
+      toast((await post("api/reboot", { machine: name, confirm: typed })).message);
+    } else if (b.dataset.wake) {
+      toast((await post("api/wake", { machine: b.dataset.wake })).message);
+    } else if (b.dataset.unload) {
+      toast((await post("api/action", { machine: b.dataset.unload, action: "unload_all" })).message);
+    } else if (b.dataset.act) {
+      const { act, key, m, name, kind } = b.dataset;
+      if (opts.confirm && kind === "docker" && act === "stop" && !confirm(`Stop ${name} on ${m}?`)) return;
+      if (act === "restart" && !confirm(`Restart ${name} on ${m}?`)) return;
+      b.disabled = true;
+      toast((await post("api/action", { machine: m, key, action: act })).message);
+    }
+    setTimeout(poll, 300);
+  } catch (err) { toast(err.message, true); b.disabled = false; }
+});
+
+$("#pc-settings-list").addEventListener("change", async e => {
+  const i = e.target;
+  const box = $("#pc-settings-list");
+  const on = i.checked;
+  if (i.dataset.auto) {
+    i.disabled = true; box.dataset.busy = "1";
+    try { toast((await post("api/auto-restart", { machine: i.dataset.auto, on })).message); }
+    catch (err) { toast(err.message, true); i.checked = !on; }
+    finally { i.disabled = false; delete box.dataset.busy; setTimeout(poll, 300); }
+    return;
+  }
+  if (!i.dataset.pcie) return;
+  if (!confirm(`${on ? "Limit" : "Stop limiting"} the ${i.dataset.label} on ${i.dataset.m}?\n\n` + (on
+      ? "The card runs slower but its link should stop dropping out."
+      : "The card can go back to full speed, but if its link is still shaky it may drop off again (and only a restart brings it back)."))) {
+    i.checked = !on; return;
+  }
+  i.disabled = true; box.dataset.busy = "1";
+  try { toast((await post("api/pcie", { machine: i.dataset.m, port: i.dataset.pcie, on })).message); }
+  catch (err) { toast(err.message, true); i.checked = !on; }
+  finally { i.disabled = false; delete box.dataset.busy; setTimeout(poll, 300); }
+});
+
+document.addEventListener("toggle", e => {
+  const d = e.target;
+  if (d.dataset && d.dataset.earlier) d.open ? earlierOpen.add(d.dataset.earlier) : earlierOpen.delete(d.dataset.earlier);
+}, true);
+$("#alert").addEventListener("click", () => {
+  showView("overview");
+  const first = document.querySelector(".problem");
+  if (first) first.scrollIntoView({ behavior: "smooth", block: "center" });
+});
+
+/* ---------- polling ---------- */
+let pollTimer;
+async function poll() {
+  clearTimeout(pollTimer);
+  try {
+    const r = await fetch("api/state", { cache: "no-store" });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+    state = await r.json(); lastOk = Date.now();
+    render();
+    $("#live").className = "dot on";
+  } catch (err) {
+    $("#live").className = "dot failed";
+    $("#updated").textContent = "Can't reach the hub: " + err.message;
+  }
+  pollTimer = setTimeout(poll, opts.refresh);
+}
+setInterval(() => {
+  $("#clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (lastOk && Date.now() - lastOk < opts.refresh * 3) {
+    const s = Math.round((Date.now() - lastOk) / 1000);
+    $("#updated").textContent = s < 2 ? "Live" : `Updated ${s}s ago`;
+  }
+}, 1000);
+
+/* ---------- docs ---------- */
+let docs = null, docsBase = "", current = null, tagFilter = null, panel = null;
+let adding = false, addFile = null, addMode = "file", addDraft = {};
+const IMP_RANK = { high: 0, normal: 1, low: 2 };
+const docTime = d => d.modified || 0;
+const DOC_SORTS = {
+  new: (a, b) => docTime(b) - docTime(a),
+  old: (a, b) => (docTime(a) || Infinity) - (docTime(b) || Infinity),
+  az: (a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" }),
+  imp: (a, b) => (IMP_RANK[a.importance] ?? 1) - (IMP_RANK[b.importance] ?? 1) || docTime(b) - docTime(a),
+};
+const docId = d => d.file || d.url;
+const docSrc = d => d.file ? docsBase + "docs/" + encodeURIComponent(d.file) : d.url;
+const docPost = (path, body) => post(docsBase + path, body);
+const kb = n => n < 1048576 ? Math.max(1, Math.round(n / 1024)) + " KB" : (n / 1048576).toFixed(1) + " MB";
+const stem = name => String(name || "").replace(/\.[^.]+$/, "");
+const fmtWhen = at => new Date(at * 1000).toLocaleString([], { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+const impBadge = d => d.importance === "high" ? `<span class="imp high">IMPORTANT</span>` : d.importance === "low" ? `<span class="imp low">LOW</span>` : "";
+const docGroups = () => [...new Set([...docs.groups, ...docs.docs.map(d => d.group || "Other")])];
+const docText = d => [d.title, d.about, d.file || "", (d.tags || []).join(" "), (d.comments || []).map(c => c.text).join(" ")].join(" ").toLowerCase();
+
+async function loadDocs() {
+  try {
+    let j = await (await fetch("api/docs", { cache: "no-store" })).json();
+    if (j.remote) {   // this hub has no docs folder; use the one that does
+      docsBase = j.remote.replace(/\/$/, "") + "/";
+      j = await (await fetch(docsBase + "api/docs", { cache: "no-store" })).json();
+    }
+    docs = j;
+    if (current) current = docs.docs.find(d => docId(d) === docId(current)) || null;
+    renderDocList();
+    if (!current && !adding && docs.docs.length) openDoc(location.hash.startsWith("#doc=") ? decodeURIComponent(location.hash.slice(5)) : null);
+  } catch (err) {
+    $("#doc-list").innerHTML = `<div class="err">Couldn't load the docs: ${esc(err.message)}</div>`;
+  }
+}
+
+function renderDocList() {
+  if (!docs) return;
+  const q = $("#doc-search").value.trim().toLowerCase(), show = $("#doc-imp").value;
+  const allTags = [...new Set(docs.docs.flatMap(d => d.tags || []))].sort((a, b) => a.localeCompare(b));
+  if (tagFilter && !allTags.includes(tagFilter)) tagFilter = null;
+  $("#doc-tags").innerHTML = allTags.map(t => `<button class="tag" data-tag="${esc(t)}" aria-pressed="${t === tagFilter}">${esc(t)}</button>`).join("");
+  const list = docs.docs.filter(d => (!q || docText(d).includes(q))
+    && (show !== "high" || d.importance === "high")
+    && (show !== "commented" || (d.comments || []).length)
+    && (!tagFilter || (d.tags || []).includes(tagFilter)));
+  const groups = [...new Set([...docs.groups, ...list.map(d => d.group || "Other")])];
+  $("#doc-list").innerHTML = groups.map(g => {
+    const items = list.filter(d => (d.group || "Other") === g).sort(DOC_SORTS[opts.docSort] || DOC_SORTS.new);
+    if (!items.length) return "";
+    return `<div class="doc-group section-label">${esc(g)}</div>` + items.map(d => {
+      const n = (d.comments || []).length, tags = d.tags || [];
+      return `<button class="doc" data-doc="${esc(docId(d))}" aria-current="${current && docId(current) === docId(d)}">
+        <b>${impBadge(d)}${esc(d.title)}<span class="kind">${d.kind === "link" ? "LIVE" : d.kind.toUpperCase()}</span>${n ? `<span class="ccount">💬 ${n}</span>` : ""}</b>
+        <span>${esc(d.about)}</span>
+        ${d.modified ? `<span>${new Date(d.modified * 1000).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}</span>` : ""}
+        ${tags.length ? `<span class="tags">${tags.map(t => `<i>${esc(t)}</i>`).join("")}</span>` : ""}
+      </button>`;
+    }).join("");
+  }).join("") || `<div class="empty">No documents match.</div>`;
+}
+$("#doc-search").addEventListener("input", renderDocList);
+$("#doc-imp").addEventListener("change", renderDocList);
+$("#doc-sort").value = DOC_SORTS[opts.docSort] ? opts.docSort : "new";
+$("#doc-sort").addEventListener("change", e => { opts.docSort = e.target.value; saveOpts(); renderDocList(); });
+$("#doc-tags").addEventListener("click", e => {
+  const b = e.target.closest("[data-tag]");
+  if (b) { tagFilter = tagFilter === b.dataset.tag ? null : b.dataset.tag; renderDocList(); }
+});
+$("#doc-list").addEventListener("click", e => { const b = e.target.closest("[data-doc]"); if (b) openDoc(b.dataset.doc); });
+$("#doc-add").addEventListener("click", () => { addDraft = {}; showAdd(null, "file"); });
+
+async function openDoc(id) {
+  const d = docs.docs.find(x => docId(x) === id) || docs.docs.find(x => x.kind !== "link") || docs.docs[0];
+  if (!d) return;
+  adding = false; current = d; panel = null; renderDocList();
+  history.replaceState(null, "", "#doc=" + encodeURIComponent(docId(d)));
+  const v = $("#viewer"), src = docSrc(d);
+  v.innerHTML = `<div id="vhead"></div><div class="vpanel" id="vpanel" hidden></div><div id="vbody"></div>`;
+  renderHead();
+  const body = $("#vbody");
+  if (d.kind === "pdf" || d.kind === "html") body.innerHTML = `<iframe src="${esc(src)}" title="${esc(d.title)}"></iframe>`;
+  else if (d.kind === "image") body.innerHTML = `<img src="${esc(src)}" alt="${esc(d.title)}">`;
+  else if (d.kind === "link") body.innerHTML = `<div class="prose"><p>${esc(d.about)}</p><p>This document lives online, so it opens in a new tab: <a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.url)}</a></p></div>`;
+  else {
+    body.innerHTML = `<div class="prose">Loading…</div>`;
+    const text = await (await fetch(src, { cache: "no-store" })).text();
+    if (current !== d && !(current && docId(current) === docId(d))) return;
+    const prose = $(".prose", body);
+    if (!prose) return;
+    prose.innerHTML = d.kind === "markdown" && window.marked ? marked.parse(text) : `<pre>${esc(text)}</pre>`;
+    prose.querySelectorAll("a[href^='http']").forEach(a => { a.target = "_blank"; a.rel = "noopener"; });
+  }
+}
+
+function catField(id, value) {
+  return `<label for="${id}">Category</label><input id="${id}" list="${id}-list" value="${esc(value || "")}" maxlength="40" placeholder="Pick one, or type a new one">
+    <datalist id="${id}-list">${docGroups().map(g => `<option value="${esc(g)}">`).join("")}</datalist>`;
+}
+function impField(id, value) {
+  return `<label for="${id}">Importance</label><select id="${id}">${[["high", "Important"], ["normal", "Normal"], ["low", "Low"]]
+    .map(([v, l]) => `<option value="${v}"${(value || "normal") === v ? " selected" : ""}>${l}</option>`).join("")}</select>`;
+}
+
+function renderHead() {
+  const d = current, h = $("#vhead");
+  if (!d || !h) return;
+  const n = (d.comments || []).length, src = docSrc(d);
+  const live = d.live ? `<a class="pill plain" href="${esc(d.live)}" target="_blank" rel="noopener" title="The editable version">Live version ↗</a>` : "";
+  h.innerHTML = `<div class="viewer-head"><h2>${impBadge(d)}${esc(d.title)}</h2>
+    <button class="pill plain" data-panel="details" aria-pressed="${panel === "details"}" title="Title, description, category, importance and tags">✎ Details</button>
+    <button class="pill plain" data-panel="comments" aria-pressed="${panel === "comments"}">💬 Comments${n ? ` (${n})` : ""}</button>
+    ${live}<a class="pill plain" href="${esc(src)}" target="_blank" rel="noopener">${d.kind === "link" ? "Open ↗" : "Open in new tab ↗"}</a></div>`;
+  renderPanel();
+}
+
+function renderPanel() {
+  const p = $("#vpanel"), d = current;
+  if (!p || !d) return;
+  p.hidden = !panel;
+  if (panel === "details") {
+    p.innerHTML = `<div class="form">
+        <label for="m-title">Title</label><input id="m-title" value="${esc(d.title)}" maxlength="200">
+        <label for="m-about">Description</label><input id="m-about" value="${esc(d.about || "")}" maxlength="500" placeholder="One line about it">
+        ${catField("m-group", d.group)}
+        ${impField("m-imp", d.importance)}
+        <label for="m-tags">Tags</label><input id="m-tags" value="${esc((d.tags || []).join(", "))}" placeholder="e.g. TTR, roadmap, security">
+        <span></span><span class="hint">Separate tags with commas. A new category is added to the list.</span>
+      </div>
+      <div class="form-btns"><button class="pill start" id="m-save">Save</button><button class="pill plain" data-panel="">Cancel</button></div>`;
+  } else if (panel === "comments") {
+    const cs = (d.comments || []).slice().sort((a, b) => (b.at || 0) - (a.at || 0));   // newest first
+    p.innerHTML = `<div class="comments">
+        <div class="cbox" style="margin:0 0 10px"><textarea id="c-text" maxlength="4000" placeholder="Add a comment… (Ctrl+Enter adds it)" aria-label="New comment"></textarea><button class="pill start" id="c-add">Add</button></div>
+        ${cs.map(c => `<div class="comment"><div><b>${esc(c.by || "")}</b> <span class="when">${esc(fmtWhen(c.at))}</span></div>
+          <button data-cdel="${esc(c.id)}" title="Delete this comment" aria-label="Delete comment">×</button>
+          <div class="txt">${esc(c.text)}</div></div>`).join("") || `<div class="when">No comments yet.</div>`}
+      </div>`;
+  } else p.innerHTML = "";
+}
+
+/* adding a document: a dropped/picked file, or a pasted text block */
+function readDraft() {
+  for (const k of ["title", "about", "group", "imp", "tags", "format", "text"]) {
+    const el = $("#a-" + k);
+    if (el) addDraft[k] = el.value;
+  }
+}
+function showAdd(file, mode) {
+  adding = true; current = null; panel = null;
+  if (file !== undefined) addFile = file;
+  if (mode) addMode = mode;
+  renderDocList();
+  const f = addMode === "file", dr = addDraft;
+  const title = dr.title ?? (f && addFile ? stem(addFile.name) : "");
+  $("#viewer").innerHTML = `<div class="addview"><h2>Add a document</h2>
+    <p>Drop in a PDF, Markdown or text file, or paste a block of text. It's saved to the docs folder on the server and listed here straight away.</p>
+    <div class="modes" role="group" aria-label="What to add">
+      <button data-mode="file" aria-pressed="${f}">File</button><button data-mode="text" aria-pressed="${!f}">Paste text</button></div>
+    ${f ? `<div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose a file">
+        <b>Drop a PDF, .md or .txt file here</b><br>or click to choose one (up to 25 MB)
+        <div class="picked" id="picked">${addFile ? esc(addFile.name) + " · " + kb(addFile.size) : ""}</div></div>
+      <input type="file" id="a-file" accept=".pdf,.md,.markdown,.txt,application/pdf,text/markdown,text/plain" hidden>` : ""}
+    <div class="form">
+      <label for="a-title">Title</label><input id="a-title" maxlength="200" value="${esc(title)}" placeholder="${f ? "Defaults to the file name" : "Needed: it becomes the file name"}">
+      <label for="a-about">Description</label><input id="a-about" maxlength="500" value="${esc(dr.about || "")}" placeholder="One line about it">
+      ${catField("a-group", dr.group ?? "Notes")}
+      ${impField("a-imp", dr.imp || "normal")}
+      <label for="a-tags">Tags</label><input id="a-tags" value="${esc(dr.tags || "")}" placeholder="e.g. TTR, roadmap (commas between)">
+      ${f ? "" : `<label for="a-format">Format</label><select id="a-format"><option value="md"${dr.format === "txt" ? "" : " selected"}>Markdown (.md)</option><option value="txt"${dr.format === "txt" ? " selected" : ""}>Plain text (.txt)</option></select>
+      <textarea class="full" id="a-text" placeholder="Paste or type the text here…" aria-label="Text">${esc(dr.text || "")}</textarea>`}
+    </div>
+    <div class="form-btns"><button class="pill start" id="a-save">Add document</button><button class="pill plain" id="a-cancel">Cancel</button></div></div>`;
+}
+function setAddFile(file) {
+  if (!file) return;
+  if (!/\.(pdf|md|markdown|txt)$/i.test(file.name)) { toast("Only PDF, Markdown (.md) and text (.txt) files can be added", true); return; }
+  if (file.size > 25 * 1024 * 1024) { toast("Files are limited to 25 MB", true); return; }
+  addFile = file;
+  const t = $("#a-title");
+  if (t && !t.value.trim()) t.value = stem(file.name);
+  const p = $("#picked");
+  if (p) p.textContent = file.name + " · " + kb(file.size);
+}
+const fileB64 = f => new Promise((res, rej) => {
+  const r = new FileReader();
+  r.onload = () => res(String(r.result).split(",")[1] || "");
+  r.onerror = () => rej(new Error("Couldn't read that file"));
+  r.readAsDataURL(f);
+});
+async function doUpload(btn) {
+  const body = { about: $("#a-about").value.trim(), group: $("#a-group").value.trim() || "Other",
+                 importance: $("#a-imp").value, tags: $("#a-tags").value };
+  const title = $("#a-title").value.trim();
+  if (title) body.title = title;
+  if (addMode === "text") {
+    body.text = $("#a-text").value;
+    body.format = $("#a-format").value;
+    if (!body.text.trim()) throw new Error("Paste or type some text first");
+    if (!title) throw new Error("Give it a title; it becomes the file name");
+  } else {
+    if (!addFile) throw new Error("Drop or choose a file first");
+    body.name = addFile.name;
+    body.data = await fileB64(addFile);
+  }
+  btn.disabled = true; btn.textContent = "Adding…";
+  try {
+    const j = await docPost("api/docs/upload", body);
+    toast(j.message);
+    adding = false; addFile = null; addDraft = {};
+    await loadDocs();
+    openDoc(j.file);
+  } finally { btn.disabled = false; btn.textContent = "Add document"; }
+}
+
+$("#viewer").addEventListener("click", async e => {
+  const b = e.target.closest("button, #drop");
+  if (!b || b.disabled) return;
+  try {
+    if (b.id === "drop") { $("#a-file").click(); return; }
+    if (b.dataset.mode) { readDraft(); showAdd(undefined, b.dataset.mode); return; }
+    if (b.id === "a-cancel") { adding = false; addFile = null; addDraft = {}; openDoc(location.hash.startsWith("#doc=") ? decodeURIComponent(location.hash.slice(5)) : null); return; }
+    if (b.id === "a-save") { await doUpload(b); return; }
+    if (b.dataset.panel !== undefined) {
+      panel = b.dataset.panel && panel !== b.dataset.panel ? b.dataset.panel : null;
+      renderHead();
+      if (panel === "comments") $("#c-text").focus();
+      return;
+    }
+    const doc = current && docId(current);
+    if (!doc) return;
+    if (b.id === "m-save") {
+      b.disabled = true;
+      await docPost("api/docs/meta", { doc, title: $("#m-title").value, about: $("#m-about").value,
+        group: $("#m-group").value, importance: $("#m-imp").value, tags: $("#m-tags").value });
+      panel = null; toast("Saved");
+      await loadDocs(); renderHead();
+    } else if (b.id === "c-add") {
+      const text = $("#c-text").value.trim();
+      if (!text) { $("#c-text").focus(); return; }
+      b.disabled = true;
+      await docPost("api/docs/comment", { doc, text, by: opts.name || "" });
+      toast("Comment added");
+      await loadDocs(); renderHead();
+    } else if (b.dataset.cdel) {
+      if (!confirm("Delete this comment?")) return;
+      await docPost("api/docs/comment/delete", { doc, id: b.dataset.cdel });
+      await loadDocs(); renderHead();
+    }
+  } catch (err) { toast(err.message, true); b.disabled = false; }
+});
+$("#viewer").addEventListener("change", e => { if (e.target.id === "a-file") setAddFile(e.target.files[0]); });
+$("#viewer").addEventListener("keydown", e => {
+  if (e.target.id === "c-text" && e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $("#c-add").click(); }
+  if (e.target.id === "drop" && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); $("#a-file").click(); }
+});
+// Drop a file (or a block of text) anywhere on the Docs tab to add it.
+const docsArea = $("#view-docs .docs");
+let dragDepth = 0;
+docsArea.addEventListener("dragenter", e => { if ([...e.dataTransfer.types].some(t => t === "Files" || t === "text/plain")) { dragDepth++; docsArea.classList.add("over"); $("#drop")?.classList.add("over"); } });
+docsArea.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; docsArea.classList.remove("over"); $("#drop")?.classList.remove("over"); } });
+docsArea.addEventListener("dragover", e => { if ([...e.dataTransfer.types].some(t => t === "Files" || t === "text/plain")) e.preventDefault(); });
+docsArea.addEventListener("drop", e => {
+  e.preventDefault(); dragDepth = 0; docsArea.classList.remove("over");
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) {
+    if (!adding || addMode !== "file") { addDraft = {}; showAdd(null, "file"); }
+    setAddFile(f);
+    return;
+  }
+  const text = e.dataTransfer.getData("text/plain");
+  if (text && text.trim()) {
+    if (adding) readDraft(); else addDraft = {};
+    addDraft.text = (addMode === "text" && adding && addDraft.text ? addDraft.text + "\n\n" : "") + text;
+    showAdd(null, "text");
+  }
+});
+
+/* ---------- options ---------- */
+$("#o-refresh").value = String(opts.refresh);
+$("#o-stopped").checked = opts.stopped; $("#o-models").checked = opts.models; $("#o-confirm").checked = opts.confirm;
+$("#o-warn").value = opts.warn; $("#o-theme").value = opts.theme;
+$("#o-refresh").onchange = e => { opts.refresh = +e.target.value; saveOpts(); poll(); };
+$("#o-stopped").onchange = e => { opts.stopped = e.target.checked; saveOpts(); render(); };
+$("#o-models").onchange = e => { opts.models = e.target.checked; saveOpts(); render(); };
+$("#o-confirm").onchange = e => { opts.confirm = e.target.checked; saveOpts(); };
+$("#o-warn").onchange = e => { opts.warn = Math.max(3, Math.min(40, +e.target.value || 12)); e.target.value = opts.warn; saveOpts(); render(); };
+$("#o-theme").onchange = e => { opts.theme = e.target.value; saveOpts(); applyTheme(); };
+$("#o-name").value = opts.name || "";
+$("#o-name").onchange = e => { opts.name = e.target.value.trim().slice(0, 40); e.target.value = opts.name; saveOpts(); };
+
+showView(location.hash.startsWith("#doc=") ? "docs" : opts.view);
+poll();
+</script>
+</body>
+</html>

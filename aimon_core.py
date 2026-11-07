@@ -1,0 +1,216 @@
+"""What aimon and AI Hub both need: reading Docker containers, Ollama models and memory, and
+starting and stopping them. No GTK in here, so a headless service can import it."""
+import datetime
+import json
+import re
+import subprocess
+import urllib.error
+import urllib.parse
+import urllib.request
+
+OLLAMA = "http://127.0.0.1:11434"
+COMFY = "http://127.0.0.1:8188"
+MIB, GIB = 1024 ** 2, 1024 ** 3
+COMFY_LOADED = GIB       # ComfyUI's CUDA context alone takes a few hundred MB; above 1 GB it has a model loaded
+
+def http_json(url, body=None, timeout=2):
+    data = None if body is None else json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        text = r.read()
+    return json.loads(text) if text.strip() else None
+
+
+def run(cmd, timeout):
+    """Output of a command; raises RuntimeError with its last line of error output if it fails."""
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    if r.returncode:
+        lines = (r.stderr or r.stdout).strip().splitlines()
+        raise RuntimeError(lines[-1] if lines else f"{cmd[0]} exited with {r.returncode}")
+    return r.stdout
+
+
+def read_containers():
+    """Every Docker container, running or not."""
+    out = run(["docker", "ps", "-a", "--no-trunc", "--format",
+               "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.State}}\t{{.Status}}"], timeout=5)
+    containers = []
+    for line in out.splitlines():
+        cid, name, image, state, status = (line.split("\t") + [""] * 5)[:5]
+        containers.append({"id": cid, "name": name, "image": image, "state": state, "status": status,
+                           "starting": "health: starting" in status, "port": None})
+    if containers:
+        # docker ps lists ports only while a container runs; its port bindings are there either way.
+        out = run(["docker", "inspect", "-f", "{{.Id}} {{json .HostConfig.PortBindings}}"]
+                  + [c["id"] for c in containers], timeout=5)
+        bindings = dict(line.split(" ", 1) for line in out.splitlines())
+        for c in containers:
+            bound = json.loads(bindings.get(c["id"], "null")) or {}
+            ports = [b for bs in bound.values() for b in bs or [] if b.get("HostPort")]
+            c["port"] = ports[0]["HostPort"] if ports else None
+            c["bind"] = ports[0].get("HostIp") or "0.0.0.0" if ports else None
+    return sorted(containers, key=lambda c: c["name"])
+
+
+def serves_web_page(port):
+    """True if the port answers with an HTML page, False if with something else, None if it doesn't answer (yet)."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2) as r:
+            return r.headers.get_content_type() == "text/html"
+    except urllib.error.HTTPError as e:
+        return e.headers.get_content_type() == "text/html"
+    except OSError:
+        return None
+
+
+def container_ram(cid):
+    """System memory a container's processes have allocated. File cache is left out: Ollama's model
+    files stay cached after loading to the GPU, which would count the whole model again."""
+    try:
+        with open(f"/sys/fs/cgroup/system.slice/docker-{cid}.scope/memory.stat") as f:
+            stat = dict(line.split() for line in f)
+        return int(stat["anon"]) + int(stat.get("shmem", 0))
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def read_gpu():
+    """(used, total) VRAM in bytes over all cards, or None without nvidia-smi, and the VRAM each container holds."""
+    try:
+        cards = run(["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"], 5)
+        apps = run(["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"], 5)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        return None, {}
+    used = total = 0
+    for line in cards.strip().splitlines():
+        u, t = line.split(",")
+        used, total = used + float(u) * MIB, total + float(t) * MIB
+    per = {}
+    for line in apps.strip().splitlines():
+        pid, mem = [x.strip() for x in line.split(",")]
+        try:
+            with open(f"/proc/{pid}/cgroup") as f:
+                m = re.search(r"docker-([0-9a-f]{64})\.scope", f.read())
+            mem = float(mem) * MIB
+        except (OSError, ValueError):   # the process ended, or "[N/A]"
+            continue
+        if m:
+            per[m[1]] = per.get(m[1], 0) + mem
+    return (used, total), per
+
+
+def read_ram():
+    """(used, total) system memory in bytes."""
+    info = {}
+    with open("/proc/meminfo") as f:
+        for line in f:
+            k, v = line.split(":")
+            info[k] = int(v.split()[0]) * 1024
+    return info["MemTotal"] - info["MemAvailable"], info["MemTotal"]
+
+
+def unloads_in(expires_at):
+    """How long Ollama will keep a model, from its expires_at (nanosecond ISO time)."""
+    m = re.match(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?(Z|[+-]\d\d:\d\d)?", expires_at or "")
+    if not m:
+        return "loaded"
+    when = datetime.datetime.fromisoformat(m[1] + ("+00:00" if m[2] in (None, "Z") else m[2]))
+    left = (when - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
+    if left > 365 * 86400:   # keep_alive -1, which START uses
+        return "loaded · stays until stopped"
+    return f"loaded · unloads in {max(1, round(left / 60))} min"
+
+
+def disk_size(b):
+    return f"{b / 1e9:.1f} GB" if b >= 1e9 else f"{b / 1e6:.0f} MB"
+
+
+def ollama_base(host):
+    """URL of the Ollama API a container publishes on this machine (falls back to the standard port)."""
+    return f"http://127.0.0.1:{host['port']}" if host and host.get("port") else OLLAMA
+
+
+def ollama_rows(chat, host):
+    """One row per installed Ollama model, loaded or not, as seen by the Ollama container `host`.
+    There can be several Ollama containers (one per graphics card); each gets its own rows. The one on
+    the standard port keeps the plain "ollama:<model>" keys. `chat` is the Open WebUI container, if there
+    is one, whose page the standard Ollama's models link to (that's the Ollama Open WebUI chats through)."""
+    base = ollama_base(host)
+    main = base == OLLAMA
+    tags = http_json(f"{base}/api/tags")["models"]
+    loaded = {m["name"]: m for m in http_json(f"{base}/api/ps")["models"]}
+    rows = []
+    for m in sorted(tags, key=lambda m: m["name"]):
+        ps = loaded.get(m["name"])
+        rows.append({"key": f"ollama:{m['name']}" if main else f"ollama@{host['name']}:{m['name']}",
+                     "kind": "ollama", "model": m["name"], "base": base,
+                     "name": m["name"].removesuffix(":latest"), "sub": unloads_in(ps.get("expires_at")) if ps
+                     else f"{disk_size(m['size'])} on disk", "state": "on" if ps else "off",
+                     "vram": ps and ps["size_vram"], "ram": ps and ps["size"] - ps["size_vram"],
+                     "tip": f"Ollama model {m['name']}\n{m['details'].get('parameter_size', '')} "
+                            f"{m['details'].get('quantization_level', '')}".strip(), "level": 1})
+        if chat and main and "bert" not in m["details"].get("family", ""):   # embedding models can't chat
+            rows[-1].update(url=f"http://127.0.0.1:{chat['port']}/?model={urllib.parse.quote(m['name'])}",
+                            web_host=chat["name"], web_port=chat["port"])
+    return rows
+
+
+def read_rows(web):
+    """Every row in the panel, top to bottom. Raises RuntimeError or OSError when Docker can't be reached.
+
+    `web` maps container names to whether they serve a web page. Running containers not in it yet are
+    checked and added; a stopped one that has never been checked gets a link, in case it does."""
+    containers = read_containers()
+    _, gpu_per = read_gpu()
+    for c in containers:
+        if c["state"] == "running" and c["port"] and c["name"] not in web:
+            page = serves_web_page(c["port"])
+            if page is not None:
+                web[c["name"]] = page
+    chat = next((c for c in containers if "open-webui" in c["image"] and c["port"]), None)
+    rows = []
+    for c in containers:
+        on = c["state"] == "running"
+        vram = gpu_per.get(c["id"])
+        status = c["status"].replace(" (healthy)", "")
+        rows.append({"key": f"docker:{c['name']}", "kind": "docker", "name": c["name"], "image": c["image"],
+                     "id": c["id"], "bind": c.get("bind"),
+                     "sub": f"{status} · :{c['port']}" if on and c["port"] else status,
+                     "state": "busy" if c["starting"] or c["state"] == "restarting" else "on" if on else "off",
+                     "vram": vram, "ram": container_ram(c["id"]) if on else None,
+                     "tip": f"Container {c['name']}\n{c['image']}\n{c['status']}", "level": 0})
+        if c["port"] and web.get(c["name"]) is not False:
+            rows[-1].update(url=f"http://127.0.0.1:{c['port']}/", web_host=c["name"], web_port=c["port"])
+        if not on:
+            continue
+        if "ollama" in c["image"]:
+            try:
+                rows += ollama_rows(chat, c)
+            except (OSError, ValueError, KeyError, TypeError):
+                pass   # still starting up
+        elif "comfyui" in c["image"] and vram and vram > COMFY_LOADED:
+            rows.append({"key": "comfy", "kind": "comfy", "name": "Image models", "sub": "loaded in VRAM",
+                         "state": "on", "vram": vram, "ram": None, "level": 1,
+                         "tip": "ComfyUI loads models when a workflow runs.\nUNLOAD frees them; the container keeps running."})
+    return rows
+
+
+def start_row(row):
+    if row["kind"] == "docker":
+        run(["docker", "start", row["name"]], timeout=120)
+    elif row["kind"] == "ollama":
+        # keep_alive -1 keeps it loaded until STOP. Embedding models can't generate, so they load through embed.
+        try:
+            http_json(f"{row['base']}/api/generate", {"model": row["model"], "keep_alive": -1}, timeout=600)
+        except urllib.error.HTTPError:
+            http_json(f"{row['base']}/api/embed", {"model": row["model"], "input": "load", "keep_alive": -1}, timeout=600)
+
+
+def stop_row(row):
+    if row["kind"] == "docker":
+        run(["docker", "stop", row["name"]], timeout=120)
+    elif row["kind"] == "ollama":
+        http_json(f"{row['base']}/api/generate", {"model": row["model"], "keep_alive": 0}, timeout=60)
+    else:
+        http_json(f"{COMFY}/interrupt", {}, timeout=10)
+        http_json(f"{COMFY}/free", {"unload_models": True, "free_memory": True}, timeout=60)
