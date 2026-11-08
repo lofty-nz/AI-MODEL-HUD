@@ -110,8 +110,24 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
 .dot.busy { background: var(--amber); animation: pulse 1s infinite alternate; }
 .dot.failed { background: var(--red); }
 @keyframes pulse { to { opacity: .35; } }
-.rname { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rname { font-weight: 700; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+.rname .rn { min-width: 0; max-width: 100%; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rname .local-only { flex: none; white-space: nowrap; }   /* on a phone the tag drops under the name instead of squashing it */
+.rtag { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; flex: 0 1 auto; }
 .row.sub .rname { font-weight: 600; font-size: 13px; }
+/* what a row is for ("quick chat"), with ✎ to change it */
+.rlabel { flex: 0 1 auto; min-width: 0; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--btn); color: var(--text); }
+.pen { flex: none; background: none; border: 0; padding: 0 3px; color: var(--faint); cursor: pointer; font-size: 14px; line-height: 1; }
+.pen:hover, .pen:focus-visible { color: var(--text); }
+.label-pop { position: fixed; z-index: 50; width: min(330px, calc(100vw - 32px)); background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: 12px; padding: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); display: grid; gap: 8px; }
+.label-pop label { font-size: 13px; }
+.label-pop input { width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+  padding: 7px 9px; font: inherit; font-size: 14px; }
+.label-pop .lp-btns { display: flex; gap: 8px; }
+.label-pop .lp-btns .pill { padding: 6px 14px; font-size: 12px; }
+.label-pop .lp-hint { color: var(--muted); font-size: 12px; margin: 0; }
 .rsub { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rsub.failed { color: var(--red); }
 .rmem { color: var(--text); font-size: 12px; white-space: nowrap; text-align: right; }
@@ -361,6 +377,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
         <ul>
           <li>The rows work like aimon. <b>START</b> and <b>STOP</b> run <code>docker start</code> and <code>docker stop</code>. Under an Ollama container, START loads a model and keeps it loaded, and STOP unloads it.</li>
           <li><b>↻</b> restarts a running container. <b>Unload all</b> frees every loaded model on that PC and leaves the containers running.</li>
+          <li>The grey tag next to a name says what it's for (<i>quick chat</i>, <i>text to image</i>…). <b>✎</b> writes or changes it; an empty one removes it. Each PC keeps its own in <code>~/.config/aimon/labels.json</code>, and the AI Models panel on that PC shows the same tags with its own ✎.</li>
           <li>Dots: green is running or loaded, amber is starting or stopping, grey is off, red means the last action failed (the reason shows under the name).</li>
           <li>Numbers on the right are <b>VRAM · RAM</b> in GB.</li>
           <li>A blue name opens that container's web page. <span class="local-only">this PC only</span> means Docker only lets that PC itself open it, for example Strata's chat page on the main PC.</li>
@@ -496,13 +513,16 @@ function renderRow(m, r) {
   const action = label === "START" ? "start" : "stop";
   let name = esc(r.name);
   if (r.url && !r.host_off) name = `<a href="${esc(r.url)}" target="_blank" rel="noopener" title="Open ${esc(r.url)}">${name} ↗</a>`;
-  if (r.url && r.local_only) name += `<span class="local-only" title="Docker only lets ${esc(m.name)} itself open this page">this PC only</span>`;
+  const only = r.url && r.local_only ? `<span class="local-only" title="Docker only lets ${esc(m.name)} itself open this page">this PC only</span>` : "";
+  const tag = r.label ? `<span class="rlabel" title="What it's for">${esc(r.label)}</span>` : "";
+  const pen = `<button class="pen" data-label-key="${esc(r.key)}" data-m="${esc(m.name)}" data-name="${esc(r.name)}" data-text="${esc(r.label || "")}"
+    title="${r.label ? "Change" : "Write"} what ${esc(r.name)} is for" aria-label="${r.label ? "Change" : "Write"} what ${esc(r.name)} is for">✎</button>`;
   const mem = r.vram || r.ram ? `${gb(r.vram)} · ${gb(r.ram)} <small>GB</small>` : "";
   const restart = r.kind === "docker" && r.state === "on" && !r.busy
     ? `<button class="pill plain icon-btn" title="Restart ${esc(r.name)}" data-act="restart" data-key="${esc(r.key)}" data-m="${esc(m.name)}" data-name="${esc(r.name)}">↻</button>` : "";
   return `<div class="row ${r.level ? "sub" : ""}" title="${esc(r.tip || "")}">
     <span class="dot ${dot}"></span>
-    <div style="min-width:0"><div class="rname">${name}</div><div class="rsub ${r.failed ? "failed" : ""}">${esc(r.sub)}</div></div>
+    <div style="min-width:0"><div class="rname"><span class="rn">${name}</span>${only}<span class="rtag">${tag}${pen}</span></div><div class="rsub ${r.failed ? "failed" : ""}">${esc(r.sub)}</div></div>
     <div class="rmem num">${mem}</div>
     <div class="btns">${restart}<button class="pill ${cls}" ${r.busy ? "disabled" : ""} data-act="${action}" data-key="${esc(r.key)}"
       data-m="${esc(m.name)}" data-name="${esc(r.name)}" data-kind="${r.kind}">${label}</button></div>
@@ -625,9 +645,52 @@ async function post(url, body) {
   if (!r.ok || j.ok === false) throw new Error(j.error || r.statusText);
   return j;
 }
+/* ✎ on a row: a small box to write what it's for. It sits outside #machines, so the 2-second refresh can't wipe it. */
+function labelClose() { document.querySelector(".label-pop")?.remove(); }
+function labelEdit(b) {
+  labelClose();
+  const { labelKey: key, m, name, text } = b.dataset;
+  const box = document.createElement("div");
+  box.className = "label-pop";
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", `What ${name} is for`);
+  box.innerHTML = `<label for="lp-text">What is <b>${esc(name)}</b> for?</label>
+    <input id="lp-text" list="lp-ideas" maxlength="60" value="${esc(text)}" placeholder="e.g. quick chat, text to image" autocomplete="off">
+    <datalist id="lp-ideas">${(state?.label_ideas || []).map(x => `<option value="${esc(x)}">`).join("")}</datalist>
+    <div class="lp-btns"><button class="pill start" data-lp="save">Save</button><button class="pill plain" data-lp="cancel">Cancel</button></div>
+    <p class="lp-hint">Shows next to its name here and in ${esc(m)}'s AI Models panel. Empty removes it.</p>`;
+  document.body.append(box);
+  const r = b.getBoundingClientRect(), w = box.offsetWidth, h = box.offsetHeight;
+  box.style.left = Math.max(16, Math.min(r.left - 20, innerWidth - w - 16)) + "px";
+  box.style.top = (r.bottom + 6 + h > innerHeight ? Math.max(8, r.top - h - 6) : r.bottom + 6) + "px";
+  const input = $("#lp-text", box);
+  input.focus(); input.select();
+  const save = async () => {
+    const btn = $("[data-lp=save]", box);
+    btn.disabled = true;
+    try {
+      toast((await post("api/label", { machine: m, key, text: input.value })).message);
+      labelClose(); poll();
+    } catch (err) { toast(err.message, true); btn.disabled = false; }
+  };
+  box.addEventListener("click", e => {
+    const a = e.target.closest("[data-lp]")?.dataset.lp;
+    if (a === "save") save(); else if (a === "cancel") labelClose();
+  });
+  box.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); save(); }
+    if (e.key === "Escape") { e.preventDefault(); labelClose(); b.focus?.(); }
+  });
+}
+document.addEventListener("pointerdown", e => {
+  const box = document.querySelector(".label-pop");
+  if (box && !box.contains(e.target) && !e.target.closest(".pen")) labelClose();
+});
+
 $("#machines").addEventListener("click", async e => {
   const b = e.target.closest("button");
   if (!b || b.disabled) return;
+  if (b.dataset.labelKey) { labelEdit(b); return; }
   try {
     if (b.dataset.reboot) {
       const name = b.dataset.reboot;

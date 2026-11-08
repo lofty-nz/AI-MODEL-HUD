@@ -26,8 +26,8 @@ gi.require_version("Pango", "1.0")
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 
-from aimon_core import (GIB, read_gpu, read_ram, read_rows, run,  # noqa: E402
-                        serves_web_page, start_row, stop_row)
+from aimon_core import (GIB, LABEL_IDEAS, LABEL_MAX, read_gpu, read_ram, read_rows, run,  # noqa: E402
+                        serves_web_page, set_label, start_row, stop_row)
 
 CONFIG = os.path.expanduser("~/.config/aimon-gui/settings.json")
 DEFAULTS = {"refresh_s": 2.0, "scale": 1.0, "on_top": True, "x": None, "y": None,
@@ -291,6 +291,18 @@ def draw_expand_button(cr, x, y, s, pressed):
 SCRATCH = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1))   # for measuring without a window
 
 
+def draw_tag(cr, s, x, cy, size, max_w=None):
+    """What a row is for ("quick chat") in a small grey pill, vertically centred on cy. Returns its width."""
+    pad = size * 0.65
+    w = draw_text(SCRATCH, s, 0, 0, size, TEXT, centred=False, max_w=max_w and max_w - 2 * pad)
+    h = size * 1.55
+    rounded_rect(cr, x, cy - h / 2, w + 2 * pad, h, h / 2)
+    cr.set_source_rgb(*TRACK)
+    cr.fill()
+    draw_text(cr, s, x + pad, cy, size, TEXT, centred=False, max_w=max_w and max_w - 2 * pad)
+    return w + 2 * pad
+
+
 def draw_mini(cr, k, rows, memory, pressed):
     """The mini HUD: what's running or loaded, then VRAM and RAM. Returns its width and click targets.
     Drawing on SCRATCH just measures it."""
@@ -309,6 +321,8 @@ def draw_mini(cr, k, rows, memory, pressed):
         x += 11 * k
         x += draw_text(cr, r["name"], x, cy, (12 if r["level"] == 0 else 11) * k, TEXT if r["level"] == 0 else MUTED,
                        bold=r["level"] == 0, centred=False) + 11 * k
+        if r.get("label"):
+            x += draw_tag(cr, r["label"], x - 5 * k, cy, 10 * k, max_w=140 * k) + 6 * k
     if len(running) > HUD_MAX_NAMES:
         x += draw_text(cr, f"+{len(running) - HUD_MAX_NAMES}", x, cy, 11 * k, MUTED, bold=True, centred=False) + 11 * k
     if not running:
@@ -410,11 +424,19 @@ def draw_panel(cr, w, h, scale, rows, error, memory, pressed):
         size = 13 if row["level"] == 0 else 12
         url = row.get("url")
         tw = draw_text(cr, row["name"] + (" ↗" if url else ""), name_x, cy - 8 * k, size * k, LINK if url else TEXT,
-                       bold=row["level"] == 0, centred=False, max_w=name_w)
+                       bold=row["level"] == 0, centred=False, max_w=name_w - 20 * k)
         if url:
             targets.append((name_x, cy - 17 * k, tw, 18 * k, ("open", row["key"])))
-        draw_text(cr, row["sub"], name_x, cy + 9 * k, 10 * k, RED if row.get("failed") else MUTED, centred=False,
-                  max_w=mem_x - name_x)
+        # ✎ after the name: write what this row is for
+        pen_x = name_x + tw + 5 * k
+        draw_text(cr, "✎", pen_x, cy - 8 * k, 12 * k, TEXT if pressed == ("label", row["key"]) else MUTED, centred=False)
+        targets.append((pen_x - 4 * k, cy - 18 * k, 20 * k, 20 * k, ("label", row["key"])))
+        sub_x, sub_w = name_x, mem_x - name_x
+        if row.get("label"):
+            tag_w = draw_tag(cr, row["label"], name_x - 2 * k, cy + 9 * k, 10 * k, max_w=sub_w * 0.72)
+            sub_x, sub_w = sub_x + tag_w + 4 * k, sub_w - tag_w - 4 * k
+        draw_text(cr, row["sub"], sub_x, cy + 9 * k, 10 * k, RED if row.get("failed") else MUTED, centred=False,
+                  max_w=max(sub_w, 10 * k))
         targets.append((0, y, w, rh, ("row", row["key"])))
         y += rh
     return targets
@@ -466,6 +488,9 @@ Click <b>OPTIONS</b> (or the title) for these settings.
 The dot is <b>green</b> when the row is running or loaded, <b>amber</b> while it's starting or stopping, and <b>grey</b> when it's off. It turns <b>red</b> when a start or stop fails, and the reason shows under the name for 30 seconds.
 The numbers on the right are <b>VRAM · RAM</b> in GB. A container's RAM is what its programs have allocated. Cached model files are left out, since the kernel drops them when memory runs short.
 The bars at the top are the whole machine's VRAM and RAM.
+
+<b>What each one is for</b>
+The grey tag under a name says what that row is for, such as <i>quick chat</i> or <i>text to image</i>. Click the <b>✎</b> next to the name to write or change it (empty removes it). The AI Hub page shows the same tags and has its own ✎, and a change in either place shows in both.
 
 <b>AUTO (coming soon)</b>
 Auto mode will start a model when an app asks for it and stop it once it has been idle, so you won't need the buttons.
@@ -640,7 +665,7 @@ class App(Gtk.Window):
 
     def on_motion(self, _, event):
         target = self.hit(event.x, event.y)
-        name = "pointer" if target in ("options", "hub", "hud", "mini") or (target and target[0] in ("toggle", "open")) else "default"
+        name = "pointer" if target in ("options", "hub", "hud", "mini") or (target and target[0] in ("toggle", "open", "label")) else "default"
         if name != self.cursor:
             self.cursor = name
             self.get_window().set_cursor(Gdk.Cursor.new_from_name(self.get_display(), name))
@@ -668,6 +693,10 @@ class App(Gtk.Window):
         row = self.row(target[1])
         if not row:
             return False
+        if target[0] == "label":
+            tooltip.set_text(f"{'Change' if row.get('label') else 'Write'} what {row['name']} is for\n"
+                             "(shows here and on the AI Hub)")
+            return True
         if target[0] == "open":
             host = self.row(f"docker:{row['web_host']}")
             tooltip.set_text(f"Open {row['url']}" + (f"\nStarts {row['web_host']} first" if host and
@@ -687,7 +716,7 @@ class App(Gtk.Window):
         if event.button != 1:
             return
         self.press_target = self.hit(event.x, event.y)
-        if self.press_target in ("options", "hub", "hud", "mini") or (self.press_target and self.press_target[0] in ("toggle", "open")):
+        if self.press_target in ("options", "hub", "hud", "mini") or (self.press_target and self.press_target[0] in ("toggle", "open", "label")):
             self.pressed = self.press_target
             self.queue_draw()
         else:
@@ -708,6 +737,9 @@ class App(Gtk.Window):
             return
         if target in ("hud", "mini"):
             self.toggle_mini()
+            return
+        if target[0] == "label":
+            GLib.idle_add(self.edit_label, target[1])
             return
         row = self.row(target[1])
         if not row or row.get("busy"):
@@ -766,6 +798,52 @@ class App(Gtk.Window):
             if dialog.autostart.get_active() != autostart_enabled():
                 set_autostart(dialog.autostart.get_active())
             self.on_update()
+        dialog.destroy()
+        return False
+
+    def edit_label(self, key):
+        """✎ on a row: write what it's for. Saved to the file the AI Hub reads too."""
+        row = self.row(key)
+        if not row:
+            return False
+        dialog = Gtk.Dialog(title="What it's for", transient_for=self, modal=True)
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Save", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        dialog.set_keep_above(True)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=16)
+        heading = Gtk.Label(xalign=0)
+        heading.set_markup(f"What is <b>{GLib.markup_escape_text(row['name'])}</b> for?")
+        box.add(heading)
+        combo = Gtk.ComboBoxText.new_with_entry()
+        for idea in LABEL_IDEAS:
+            combo.append_text(idea)
+        entry = combo.get_child()
+        entry.set_text(row.get("label") or "")
+        entry.set_max_length(LABEL_MAX)
+        entry.set_placeholder_text("e.g. quick chat, text to image")
+        entry.set_activates_default(True)
+        entry.set_width_chars(34)
+        box.add(combo)
+        note = Gtk.Label(label="Pick one from the list or type your own. It shows on this panel and on the "
+                               "AI Hub page. Leave it empty to remove it.", xalign=0, wrap=True, max_width_chars=46)
+        note.get_style_context().add_class("dim-label")
+        box.add(note)
+        dialog.get_content_area().add(box)
+        dialog.show_all()
+        if dialog.run() == Gtk.ResponseType.OK:
+            try:
+                text = set_label(key, entry.get_text())
+                with self.monitor.lock:   # show it now rather than at the next refresh
+                    for r in self.monitor.rows:
+                        if r["key"] == key:
+                            r["label"] = text
+                self.on_update()
+            except (OSError, ValueError) as e:
+                err = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.ERROR,
+                                        buttons=Gtk.ButtonsType.CLOSE, text=f"Couldn't save it: {e}")
+                err.run()
+                err.destroy()
         dialog.destroy()
         return False
 

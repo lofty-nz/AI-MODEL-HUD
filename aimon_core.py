@@ -1,7 +1,9 @@
 """What aimon and AI Hub both need: reading Docker containers, Ollama models and memory, and
 starting and stopping them. No GTK in here, so a headless service can import it."""
 import datetime
+import fcntl
 import json
+import os
 import re
 import subprocess
 import urllib.error
@@ -13,12 +15,65 @@ COMFY = "http://127.0.0.1:8188"
 MIB, GIB = 1024 ** 2, 1024 ** 3
 COMFY_LOADED = GIB       # ComfyUI's CUDA context alone takes a few hundred MB; above 1 GB it has a model loaded
 
-def http_json(url, body=None, timeout=2):
+# What each row is for ("quick chat", "text to image"), by row key. One file per PC, shared by the
+# panel and the AI Hub, so a ✎ change in either shows in both.
+LABELS = os.path.expanduser("~/.config/aimon/labels.json")
+LABEL_MAX = 60
+LABEL_IDEAS = ["quick chat", "complex chat", "text to image", "image to text", "reads documents",
+               "document search", "speech to text", "chat website", "runs the chat models", "not AI"]
+
+
+def read_labels():
+    try:
+        with open(LABELS) as f:
+            labels = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return {str(k): str(v) for k, v in labels.items() if v} if isinstance(labels, dict) else {}
+
+
+def set_label(key, text):
+    """Saves (or with empty text, removes) a row's label. Returns the label as saved."""
+    key = str(key or "").strip()
+    if not key:
+        raise ValueError("Which row?")
+    text = " ".join(str(text or "").split())[:LABEL_MAX]
+    os.makedirs(os.path.dirname(LABELS), exist_ok=True)
+    with open(LABELS + ".lock", "w") as lock:   # the panel and the hub may both write
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        labels = read_labels()
+        if text:
+            labels[key] = text
+        else:
+            labels.pop(key, None)
+        tmp = LABELS + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(dict(sorted(labels.items())), f, indent=1, ensure_ascii=False)
+        os.replace(tmp, LABELS)
+    return text
+
+def http_json(url, body=None, timeout=2, headers=None):
     data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", **(headers or {})})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         text = r.read()
     return json.loads(text) if text.strip() else None
+
+
+STRATA_KEY = os.path.expanduser("~/.config/strata/api_key")
+
+
+def strata_status(port):
+    """Strata answers one question at a time. Its /status says whether it's busy and how many wait:
+    {"busy", "queued", "phase", ...}, or None when it can't be read. Apps check the row before asking."""
+    try:
+        with open(STRATA_KEY) as f:
+            key = f.read().strip()
+        st = http_json(f"http://127.0.0.1:{port}/status", timeout=1, headers={"Authorization": f"Bearer {key}"})
+    except (OSError, ValueError):
+        return None
+    return {"busy": bool(st.get("busy")), "queued": int(st.get("queued") or 0), "phase": str(st.get("phase") or "")} \
+        if isinstance(st, dict) else None
 
 
 def run(cmd, timeout):
@@ -183,6 +238,13 @@ def read_rows(web):
             rows[-1].update(url=f"http://127.0.0.1:{c['port']}/", web_host=c["name"], web_port=c["port"])
         if not on:
             continue
+        if "strata" in c["image"] and c["port"] and not c["starting"]:
+            st = strata_status(c["port"])
+            if st:
+                rows[-1]["strata"] = st
+                if st["busy"] or st["queued"]:
+                    rows[-1]["sub"] = (f"busy answering ({st['phase'] or 'working'})"
+                                       + (f" · {st['queued']} waiting" if st["queued"] else "") + f" · :{c['port']}")
         if "ollama" in c["image"]:
             try:
                 rows += ollama_rows(chat, c)
@@ -192,6 +254,9 @@ def read_rows(web):
             rows.append({"key": "comfy", "kind": "comfy", "name": "Image models", "sub": "loaded in VRAM",
                          "state": "on", "vram": vram, "ram": None, "level": 1,
                          "tip": "ComfyUI loads models when a workflow runs.\nUNLOAD frees them; the container keeps running."})
+    labels = read_labels()
+    for r in rows:
+        r["label"] = labels.get(r["key"], "")
     return rows
 
 

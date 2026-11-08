@@ -202,6 +202,15 @@ class Local:
             self.wake.wait(POLL_S)
             self.wake.clear()
 
+    def set_label(self, key, text):
+        """What a row is for (✎ on the page); shows straight away, then on every poll from the file."""
+        text = core.set_label(key, text)
+        with self.lock:
+            for r in self.state["rows"]:
+                if r["key"] == key:
+                    r["label"] = text
+        return f"Saved: {text}" if text else "Description removed"
+
     def _fix_url(self, row, rows):
         """aimon's links point at 127.0.0.1; from another device they need this PC's address.
         A port Docker bound to 127.0.0.1 only can't be reached from elsewhere, so it's marked."""
@@ -912,6 +921,7 @@ class Handler(BaseHTTPRequestHandler):
                 peers = list(pool.map(peer_state, CFG["peers"]))
             links = [dict(link, up=LOCAL.links.get(link["url"])) for link in CFG["links"]]
             self.send_json({"self": CFG["name"], "machines": [local_state()] + peers, "links": links,
+                            "label_ideas": core.LABEL_IDEAS,
                             "docs_url": None if CFG["docs_dir"] else CFG["docs_url"]})
         elif path == "/api/docs":
             if not CFG["docs_dir"]:
@@ -958,6 +968,21 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     self.send_json(fetch_json(peer["url"].rstrip("/") + "/api/local/action",
                                               {"key": req.get("key"), "action": req.get("action")}, timeout=10))
+                except urllib.error.HTTPError as e:
+                    self.send_json(json.loads(e.read() or b"{}") or {"error": str(e)}, e.code)
+            elif self.path == "/api/local/label":
+                self.send_json({"ok": True, "message": LOCAL.set_label(req.get("key"), req.get("text"))})
+            elif self.path == "/api/label":
+                machine = req.get("machine")
+                if machine == CFG["name"]:
+                    self.send_json({"ok": True, "message": LOCAL.set_label(req.get("key"), req.get("text"))})
+                    return
+                peer = next((p for p in CFG["peers"] if p["name"] == machine), None)
+                if not peer:
+                    raise ValueError(f"Unknown PC: {machine}")
+                try:
+                    self.send_json(fetch_json(peer["url"].rstrip("/") + "/api/local/label",
+                                              {"key": req.get("key"), "text": req.get("text")}, timeout=10))
                 except urllib.error.HTTPError as e:
                     self.send_json(json.loads(e.read() or b"{}") or {"error": str(e)}, e.code)
             elif self.path == "/api/local/reboot":
