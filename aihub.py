@@ -47,11 +47,14 @@ DEFAULTS = {
     "peers": [],             # [{"name", "url", "mac"}]: the other PCs' hubs; mac is for Wake-on-LAN
     "docs_dir": None,        # folder of docs this hub serves; None = the page uses docs_url instead
     "docs_url": None,        # another hub that has the docs
-    "links": [],             # [{"name", "url", "note"}]: quick links, checked for an answer
+    "links": [],             # [{"name", "url", "note", "icon"}]: quick links, checked for an answer;
+                             # icon = a file in web/icons shown on the link (e.g. "ttr-logo.png")
     "allow_reboot": False,   # True shows a Restart PC button; needs passwordless `sudo systemctl reboot`
     "pcie_caps": [],         # [{"port": "00:1c.0", "label", "gen": 1}]: slots that may be speed-capped (On/Off on the page)
     "trusted_origins": [],   # extra page addresses allowed to POST, e.g. "https://server.your-tailnet.ts.net:8090"
     "hide_rows": [],         # row keys the page leaves out, such as a model on the wrong card's Ollama
+    "dictate": None,         # {"container": "open-webui", "model": "base"}: the 🎤 buttons' speech-to-text, using the
+                             # Whisper model already in that container. Only the hub with the docs needs it.
     "allow": ["127.0.0.0/8", "::1/128", "192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12",
               "100.64.0.0/10"],   # who may use the hub at all: this PC, the home network, Tailscale
 }
@@ -660,8 +663,8 @@ def add_comment(folder, doc, text, by):
     text = str(text or "").strip()
     if not text:
         raise ValueError("The comment is empty")
-    if len(text) > 4000:
-        raise ValueError("Comments are limited to 4000 characters")
+    if len(text) > 10000:
+        raise ValueError("Comments are limited to 10,000 characters")
     comment = {"id": os.urandom(5).hex(), "text": text, "by": by, "at": round(time.time())}
     with INDEX_LOCK:
         index = read_index(folder)
@@ -736,6 +739,42 @@ def save_upload(folder, req):
         apply_meta(index, entry, meta)
         write_index(folder, index)
     return name
+
+
+# ---------- dictation: 🎤 on the page records, Whisper in a container writes it out ----------
+MAX_AUDIO = 20 * 1024 * 1024   # about 10 minutes of browser (Opus) audio
+DICTATE_LOCK = threading.Lock()   # one at a time, so a few clips can't pile up on the CPU
+DICTATE_SCRIPT = r'''
+import os, sys, tempfile
+from faster_whisper import WhisperModel
+with tempfile.NamedTemporaryFile(suffix=".audio") as f:
+    f.write(sys.stdin.buffer.read())
+    f.flush()
+    m = WhisperModel(sys.argv[1], device="cpu", compute_type="int8", local_files_only=True,
+                     download_root=os.environ.get("WHISPER_MODEL_DIR") or "/app/backend/data/cache/whisper/models")
+    segs, _ = m.transcribe(f.name, language="en", vad_filter=True)
+    print(" ".join(s.text.strip() for s in segs).strip())
+'''
+
+
+def transcribe(audio):
+    """Speech to text with the faster-whisper model Open WebUI already has (no new install)."""
+    conf = CFG["dictate"]
+    if not conf:
+        raise ValueError("Dictation isn't set up on this hub")
+    if not audio:
+        raise ValueError("No sound was recorded")
+    with DICTATE_LOCK:
+        try:
+            r = subprocess.run(["docker", "exec", "-i", conf.get("container", "open-webui"), "python3", "-c",
+                                DICTATE_SCRIPT, conf.get("model", "base")],
+                               input=audio, capture_output=True, timeout=300)
+        except subprocess.TimeoutExpired:
+            raise ValueError("Writing it out took too long; try a shorter recording")
+    if r.returncode:
+        last = (r.stderr.decode(errors="replace").strip().splitlines() or ["unknown error"])[-1]
+        raise ValueError(f"Couldn't write it out: {last[:300]}")
+    return r.stdout.decode(errors="replace").strip()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -864,6 +903,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.unquote(self.path.split("?", 1)[0])
         if path in ("/", "/index.html"):
             self.send_file(PAGE, "text/html")
+        elif path.startswith("/icons/") and re.fullmatch(r"[\w.-]+\.(png|svg)", path[7:]):
+            self.send_file(os.path.join(HERE, "web", "icons", path[7:]))   # link logos, e.g. the TTR app's
         elif path == "/api/local":
             self.send_json(local_state())
         elif path == "/api/state":
@@ -896,6 +937,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path.startswith("/api/docs/"):
                 self.docs_post(self.path.split("?", 1)[0])
+                return
+            if self.path == "/api/dictate":   # the body is the recording itself, not JSON
+                n = int(self.headers.get("Content-Length") or 0)
+                if n > MAX_AUDIO:
+                    raise ValueError("That recording is too long (about 10 minutes at most)")
+                self.send_json({"ok": True, "text": transcribe(self.rfile.read(n))})
                 return
             req = self.body()
             if self.path == "/api/local/action":

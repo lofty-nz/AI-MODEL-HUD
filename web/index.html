@@ -63,6 +63,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
   background: var(--panel); border: 1px solid var(--line); color: var(--text); font-weight: 600; font-size: 13px; }
 .chip:hover { text-decoration: none; border-color: var(--faint); }
 .chip small { color: var(--muted); font-weight: 500; }
+.chip .chip-icon { height: 24px; width: auto; margin: -5px 0 -5px -4px; }
 
 /* Machines */
 .machines { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 16px; align-items: start; }
@@ -216,6 +217,13 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
 .cbox { display: flex; gap: 8px; margin-top: 10px; align-items: flex-end; }
 .cbox textarea { min-height: 60px; resize: vertical; }
 .cbox .pill { padding: 8px 16px; font-size: 12px; }
+.pill.mic { letter-spacing: 0; white-space: nowrap; }
+.cbox .pill.mic:not(.rec):not(:disabled) { font-size: 17px; padding: 4px 13px; }
+.pill.mic.rec { background: var(--red); color: #fff; animation: micpulse 1.2s ease-in-out infinite; }
+@keyframes micpulse { 50% { opacity: .7; } }
+@media (prefers-reduced-motion: reduce) { .pill.mic.rec { animation: none; } }
+.mic-row { display: flex; gap: 10px; align-items: center; }
+.mic-row .pill { padding: 7px 16px; font-size: 12px; }
 .addview { padding: 16px; }
 .addview h2 { margin: 0 0 4px; font-size: 16px; }
 .addview > p { margin: 0 0 14px; color: var(--muted); }
@@ -365,6 +373,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
           <li><b>Important</b> docs show a red mark, <b>Low</b> ones grey. The first drop-down above the list shows only important or commented docs; a tag under it shows only docs with that tag.</li>
           <li><b>Sort</b> orders each category: newest first (the default; the date is when the file was added or last changed), oldest first, A–Z, or important first. Comments always show newest first.</li>
           <li><b>💬 Comments</b> are notes on a doc, shown with who and when. The name comes from <b>Your name</b> below, or else the PC it was written on.</li>
+          <li><b>🎤</b> next to a comment box (and <b>🎤 Speak it</b> under Paste text) lets you talk instead of type: press it, talk, press it again to stop. The server's own Whisper (the one Open WebUI's voice typing uses) writes it out in a few seconds and adds it to the box, so you can fix it before pressing Add. Browsers only allow the mic on the <b>https</b> address (the "Away from home" AI Hub link); on the plain address it offers to switch.</li>
           <li>You can still copy files into the folder by hand; titles, categories, tags and comments live in its <code>index.json</code>.</li>
         </ul>
         <h3>Who can open it</h3>
@@ -442,7 +451,7 @@ function renderLinks(links) {
   // Links without a "group" come first; each group (e.g. the Tailscale https links) gets its own labelled row.
   const chip = l => `
     <a class="chip" href="${esc(l.url)}" target="_blank" rel="noopener" title="${esc(l.url)}">
-      <span class="dot ${l.up ? "on" : l.up === false ? "failed" : ""}"></span>${esc(l.name)}
+      ${l.icon ? `<img class="chip-icon" src="icons/${encodeURIComponent(l.icon)}" alt="">` : ""}<span class="dot ${l.up ? "on" : l.up === false ? "failed" : ""}"></span>${esc(l.name)}
       ${l.note ? `<small>${esc(l.note)}</small>` : ""}</a>`;
   const groups = [];
   for (const l of links) {
@@ -832,12 +841,13 @@ function renderPanel() {
   } else if (panel === "comments") {
     const cs = (d.comments || []).slice().sort((a, b) => (b.at || 0) - (a.at || 0));   // newest first
     p.innerHTML = `<div class="comments">
-        <div class="cbox" style="margin:0 0 10px"><textarea id="c-text" maxlength="4000" placeholder="Add a comment… (Ctrl+Enter adds it)" aria-label="New comment"></textarea><button class="pill start" id="c-add">Add</button></div>
+        <div class="cbox" style="margin:0 0 10px"><textarea id="c-text" maxlength="10000" placeholder="Add a comment… (Ctrl+Enter adds it, 🎤 to speak it)" aria-label="New comment"></textarea>${micBtn("c-text")}<button class="pill start" id="c-add">Add</button></div>
         ${cs.map(c => `<div class="comment"><div><b>${esc(c.by || "")}</b> <span class="when">${esc(fmtWhen(c.at))}</span></div>
           <button data-cdel="${esc(c.id)}" title="Delete this comment" aria-label="Delete comment">×</button>
           <div class="txt">${esc(c.text)}</div></div>`).join("") || `<div class="when">No comments yet.</div>`}
       </div>`;
   } else p.innerHTML = "";
+  micUi();
 }
 
 /* adding a document: a dropped/picked file, or a pasted text block */
@@ -869,9 +879,73 @@ function showAdd(file, mode) {
       ${impField("a-imp", dr.imp || "normal")}
       <label for="a-tags">Tags</label><input id="a-tags" value="${esc(dr.tags || "")}" placeholder="e.g. TTR, roadmap (commas between)">
       ${f ? "" : `<label for="a-format">Format</label><select id="a-format"><option value="md"${dr.format === "txt" ? "" : " selected"}>Markdown (.md)</option><option value="txt"${dr.format === "txt" ? " selected" : ""}>Plain text (.txt)</option></select>
-      <textarea class="full" id="a-text" placeholder="Paste or type the text here…" aria-label="Text">${esc(dr.text || "")}</textarea>`}
+      <textarea class="full" id="a-text" placeholder="Paste or type the text here…" aria-label="Text">${esc(dr.text || "")}</textarea>
+      <div class="full mic-row">${micBtn("a-text", "🎤 Speak it")}<span class="hint">Press, talk, press again to stop. The words go on the end of the text.</span></div>`}
     </div>
     <div class="form-btns"><button class="pill start" id="a-save">Add document</button><button class="pill plain" id="a-cancel">Cancel</button></div></div>`;
+  micUi();
+}
+
+/* dictation: 🎤 records in the browser and the server's own Whisper writes it out (nothing goes to Google,
+   and it works in Firefox). Browsers only allow the mic on https pages (or localhost). */
+let mic = null;   // { target, mr, stream, t0, timer, busy }
+const MIC_MAX_S = 600;
+const micBtn = (target, label = "🎤") => `<button type="button" class="pill plain mic" data-mic="${target}" data-label="${esc(label)}"
+  title="Speak instead of typing: press, talk, then press again to stop">${esc(label)}</button>`;
+const mmss = s => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+function micUi() {
+  for (const b of document.querySelectorAll("[data-mic]")) {
+    const on = !!mic && mic.target === b.dataset.mic;
+    b.classList.toggle("rec", on && !mic.busy);
+    b.disabled = !!mic && (mic.busy || !on);   // one recording at a time
+    b.textContent = !on ? b.dataset.label : mic.busy ? "⏳ Writing it out…" : `■ Stop ${mmss((Date.now() - mic.t0) / 1000)}`;
+  }
+}
+async function micToggle(target) {
+  if (mic) { if (!mic.busy && mic.mr.state !== "inactive") mic.mr.stop(); return; }
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    const https = (state?.links || []).find(l => l.name === "AI Hub" && l.url.startsWith("https:"));
+    if (!https) { toast("Browsers only allow the mic on an https page, and this one is plain http", true); return; }
+    if (confirm("Browsers only allow the mic on a secure (https) page, and this one is plain http.\n\nOpen the AI Hub's https address instead? Anything typed here and not yet added is lost."))
+      location.href = https.url.replace(/\/$/, "") + "/" + location.hash;
+    return;
+  }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { toast(e.name === "NotAllowedError" ? "The browser wasn't allowed to use the mic" : "No mic: " + e.message, true); return; }
+  const chunks = [], mr = new MediaRecorder(stream);
+  mic = { target, mr, stream, t0: Date.now(), busy: false };
+  mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  mr.onstop = () => micDone(new Blob(chunks, { type: mr.mimeType || "audio/webm" }));
+  mr.start(1000);
+  mic.timer = setInterval(() => {
+    if ((Date.now() - mic.t0) / 1000 >= MIC_MAX_S && mr.state !== "inactive") mr.stop(); else micUi();
+  }, 500);
+  micUi();
+}
+async function micDone(blob) {
+  const m = mic;
+  clearInterval(m.timer);
+  m.stream.getTracks().forEach(t => t.stop());
+  m.busy = true; micUi();
+  try {
+    const r = await fetch(docsBase + "api/dictate", { method: "POST", body: blob,
+      headers: { "Content-Type": blob.type || "application/octet-stream" } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) throw new Error(j.error || r.statusText);
+    const text = (j.text || "").trim();
+    if (!text) { toast("No words came through. Try again, a bit closer to the mic", true); return; }
+    const el = document.getElementById(m.target);
+    if (el) {
+      el.value += (el.value && !/\s$/.test(el.value) ? " " : "") + text;
+      el.focus(); el.setSelectionRange(el.value.length, el.value.length);
+      toast(`Written out. Check it, then press ${m.target === "c-text" ? "Add" : "Add document"}`);
+    } else {
+      navigator.clipboard?.writeText(text).catch(() => {});
+      toast("The box had closed, so the words are copied instead: " + text.slice(0, 80));
+    }
+  } catch (e) { toast("Dictation: " + e.message, true); }
+  finally { mic = null; micUi(); }
 }
 function setAddFile(file) {
   if (!file) return;
@@ -919,6 +993,7 @@ $("#viewer").addEventListener("click", async e => {
   if (!b || b.disabled) return;
   try {
     if (b.id === "drop") { $("#a-file").click(); return; }
+    if (b.dataset.mic) { await micToggle(b.dataset.mic); return; }
     if (b.dataset.mode) { readDraft(); showAdd(undefined, b.dataset.mode); return; }
     if (b.id === "a-cancel") { adding = false; addFile = null; addDraft = {}; openDoc(location.hash.startsWith("#doc=") ? decodeURIComponent(location.hash.slice(5)) : null); return; }
     if (b.id === "a-save") { await doUpload(b); return; }
