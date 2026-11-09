@@ -29,6 +29,7 @@ Settings are saved in `~/.config/aimon-gui/settings.json`. "Start AI Model Monit
 - `aimon_core.py`: Docker, Ollama and memory reading shared by the panel and the hub (no GTK).
 - `web/index.html`: the page.
 - `aihub.service`: the user service. Install with `cp aihub.service ~/.config/systemd/user/ && systemctl --user enable --now aihub`.
-- Settings: `~/.config/aihub/config.json` with `name`, `lan_ip`, `peers` (`name`, `url`, `mac`), `links`, and `docs_dir` or `docs_url`.
+- `telegram_hub.py`: the **Telegram** tab. One hub (config `"telegram": true`) runs a Telegram bot that other apps on that PC use to message your phone: `POST /api/telegram/send {text, key, buttons, silent, source}`, and `POST /api/telegram/edit {key, text, buttons}` to change the message sent with that key without a new ping. Buttons are link buttons. Paste the bot's token from @BotFather on the tab and link your chat with the 6-digit code (or the tab's t.me link); only linked chats get anything. It uses long polling, so nothing is opened to the internet. Token and chats: `~/.config/aihub/telegram.json` (owner-only); log: `~/.local/state/aihub/telegram-log.json`. Other hubs show that hub's tab (`telegram_url`, default `docs_url`).
+- Settings: `~/.config/aihub/config.json` with `name`, `lan_ip`, `peers` (`name`, `url`, `mac`), `links`, `docs_dir` or `docs_url`, and `telegram` (true on the one hub that runs the bot).
 
 It needs `sysmon.py` from `~/Documents/sysmon` for the CPU and GPU readings.

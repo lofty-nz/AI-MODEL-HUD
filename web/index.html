@@ -231,6 +231,40 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
 .comment button { background: none; border: 0; color: var(--faint); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; }
 .comment button:hover { color: var(--red); }
 .cbox { display: flex; gap: 8px; margin-top: 10px; align-items: flex-end; }
+
+/* Telegram tab */
+.tg { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .tg { grid-template-columns: minmax(0, 1fr); } }
+.tg .card { padding: 16px; }
+.tg h2 { margin: 0 0 10px; font-size: 16px; }
+.tg-setup ol { margin: 6px 0 10px; padding-left: 20px; } .tg-setup li { margin: 4px 0; }
+.tg-setup p { margin: 8px 0; }
+.tg-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+.tg-row .pill { padding: 7px 14px; font-size: 12px; }
+.tg-row input { flex: 1; min-width: 180px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; font: inherit; }
+.tg-code { font: 700 26px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .18em; margin: 6px 0; }
+.tg-ok { color: var(--green); font-weight: 700; }
+.tg-err { color: var(--red); }
+.tg-chats { list-style: none; margin: 6px 0; padding: 0; }
+.tg-chats li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+.tg-chats .pill { padding: 3px 10px; }
+.tg-uses { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+.tg-uses h3 { margin: 0 0 4px; font-size: 13px; }
+.tg-chat { display: flex; flex-direction: column; }
+.tg-chat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.tg-chat-head .hint-muted { margin: 0; }
+.tg-msgs { display: flex; flex-direction: column; gap: 8px; height: min(62vh, 640px); overflow-y: auto; padding: 10px; margin: 0 -6px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; }
+.tg-day { align-self: center; font-size: 11px; font-weight: 700; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; margin: 6px 0 2px; }
+.tg-msg { max-width: min(560px, 88%); background: var(--panel); border: 1px solid var(--line); border-radius: 14px 14px 14px 4px; padding: 8px 11px; align-self: flex-start; }
+.tg-msg.in { align-self: flex-end; border-radius: 14px 14px 4px 14px; background: color-mix(in srgb, var(--start) 22%, var(--panel)); }
+.tg-msg .tg-meta { display: flex; gap: 6px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.tg-msg .tg-src { font-weight: 700; color: var(--text); }
+.tg-msg .tg-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.tg-msg .tg-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.tg-msg .tg-btns a { display: inline-block; border: 1px solid var(--line); background: var(--panel-2); border-radius: 8px; padding: 5px 10px; font-size: 12px; font-weight: 600; }
+.tg-msg .tg-warn { color: var(--red); font-size: 12px; margin-top: 4px; }
+.tg-compose textarea { min-height: 44px; }
 .cbox textarea { min-height: 60px; resize: vertical; }
 .cbox .pill { padding: 8px 16px; font-size: 12px; }
 .pill.mic { letter-spacing: 0; white-space: nowrap; }
@@ -280,7 +314,9 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
 
 @media (max-width: 760px) {
   .bar { flex-wrap: wrap; gap: 8px 12px; }
-  nav { order: 3; width: 100%; }
+  nav { order: 3; width: 100%; overflow-x: auto; }
+  nav { gap: 2px; }
+  nav button { white-space: nowrap; padding: 6px 8px; flex: none; font-size: 13px; }
   .stats { grid-template-columns: repeat(2, 1fr); }
   .docs { grid-template-columns: 1fr; }
   .doc-list { position: static; max-height: none; }
@@ -299,6 +335,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
     <nav role="tablist">
       <button role="tab" data-view="overview" aria-selected="true">Overview</button>
       <button role="tab" data-view="docs">Docs</button>
+      <button role="tab" data-view="telegram">Telegram</button>
       <button role="tab" data-view="options">Options &amp; help</button>
     </nav>
     <div class="spacer"></div>
@@ -327,6 +364,24 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
         <div id="doc-list"></div>
       </div>
       <div class="viewer" id="viewer"><div class="empty">Pick a document on the left.</div></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-telegram" hidden>
+    <div class="tg">
+      <div class="card tg-setup">
+        <h2>Telegram</h2>
+        <div id="tg-setup"><p class="hint-muted">Loading…</p></div>
+      </div>
+      <div class="card tg-chat">
+        <div class="tg-chat-head"><h2>Messages</h2><span class="hint-muted" id="tg-chat-note"></span></div>
+        <div class="tg-msgs" id="tg-msgs" aria-live="polite"></div>
+        <div class="cbox tg-compose">
+          <textarea id="tg-text" rows="2" maxlength="4000" placeholder="Send a message to your phone" aria-label="Message to send to your phone"></textarea>
+          <span id="tg-mic"></span>
+          <button type="button" class="pill start" id="tg-send">Send</button>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -393,6 +448,14 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
           <li><b>🎤</b> next to a comment box (and <b>🎤 Speak it</b> under Paste text) lets you talk instead of type: press it, talk, press it again to stop. The server's own Whisper (the one Open WebUI's voice typing uses) writes it out in a few seconds and adds it to the box, so you can fix it before pressing Add. Browsers only allow the mic on the <b>https</b> address (the "Away from home" AI Hub link); on the plain address it offers to switch.</li>
           <li>You can still copy files into the folder by hand; titles, categories, tags and comments live in its <code>index.json</code>.</li>
         </ul>
+        <h3>Telegram</h3>
+        <ul>
+          <li>The <b>Telegram</b> tab links a Telegram bot to your phone. Apps use it to message you: the <b>TTR app</b> sends each new lead and each customer reply, with an <b>Open in TTR</b> button that opens that lead's reply window (switch it in TTR → ⚙ Settings → 📧 Email → AI replies).</li>
+          <li>To set it up: in Telegram, message <b>@BotFather</b>, send <code>/newbot</code>, then paste the token it gives you on the tab. Open the bot from the tab's link (or send it the 6-digit code) to link your chat. Only linked chats get anything; anyone else is turned away.</li>
+          <li>The tab shows every message the bot sent (newest at the bottom) and anything you send the bot. The box under it sends a message to your phone. Messages TTR changes later (when the AI's draft is ready, or you've replied) change on your phone too, without pinging again.</li>
+          <li>Only the server's AI Hub runs the bot (one program at a time may read a bot's messages). The main PC's Telegram tab shows the server's.</li>
+          <li>The <b>Open in TTR</b> links use the Tailscale https address, so they work away from home as long as the phone has Tailscale on.</li>
+        </ul>
         <h3>Who can open it</h3>
         <p>Only this PC, the home network and Tailscale devices. Anything else gets "Not allowed".</p>
       </div>
@@ -424,6 +487,7 @@ function showView(name) {
   document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === name));
   document.querySelectorAll(".view").forEach(v => v.hidden = v.id !== "view-" + name);
   if (name === "docs") loadDocs();
+  if (name === "telegram") tgLoad(); else clearTimeout(tgTimer);
 }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => showView(b.dataset.view));
 
@@ -964,7 +1028,7 @@ function micUi() {
     b.textContent = !on ? b.dataset.label : mic.busy ? "⏳ Writing it out…" : `■ Stop ${mmss((Date.now() - mic.t0) / 1000)}`;
   }
 }
-async function micToggle(target) {
+async function micToggle(target, base) {
   if (mic) { if (!mic.busy && mic.mr.state !== "inactive") mic.mr.stop(); return; }
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
     const https = (state?.links || []).find(l => l.name === "AI Hub" && l.url.startsWith("https:"));
@@ -977,7 +1041,7 @@ async function micToggle(target) {
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
   catch (e) { toast(e.name === "NotAllowedError" ? "The browser wasn't allowed to use the mic" : "No mic: " + e.message, true); return; }
   const chunks = [], mr = new MediaRecorder(stream);
-  mic = { target, mr, stream, t0: Date.now(), busy: false };
+  mic = { target, mr, stream, t0: Date.now(), busy: false, base };
   mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
   mr.onstop = () => micDone(new Blob(chunks, { type: mr.mimeType || "audio/webm" }));
   mr.start(1000);
@@ -992,7 +1056,7 @@ async function micDone(blob) {
   m.stream.getTracks().forEach(t => t.stop());
   m.busy = true; micUi();
   try {
-    const r = await fetch(docsBase + "api/dictate", { method: "POST", body: blob,
+    const r = await fetch((m.base ?? docsBase) + "api/dictate", { method: "POST", body: blob,
       headers: { "Content-Type": blob.type || "application/octet-stream" } });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j.ok === false) throw new Error(j.error || r.statusText);
@@ -1002,7 +1066,7 @@ async function micDone(blob) {
     if (el) {
       el.value += (el.value && !/\s$/.test(el.value) ? " " : "") + text;
       el.focus(); el.setSelectionRange(el.value.length, el.value.length);
-      toast(`Written out. Check it, then press ${m.target === "c-text" ? "Add" : "Add document"}`);
+      toast(`Written out. Check it, then press ${m.target === "c-text" ? "Add" : m.target === "tg-text" ? "Send" : "Add document"}`);
     } else {
       navigator.clipboard?.writeText(text).catch(() => {});
       toast("The box had closed, so the words are copied instead: " + text.slice(0, 80));
@@ -1115,6 +1179,143 @@ docsArea.addEventListener("drop", e => {
   }
 });
 
+/* ---------- Telegram ---------- */
+// The bot runs on one hub (the server's). On another PC, /api/telegram names that hub and this tab talks to it.
+let tg = null, tgBase = "", tgTimer = null, tgSeen = "", tgNewTok = false;
+const tgTime = ts => new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const tgLinkify = t => esc(t).replace(/https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"]/g, u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+const tgHubUrl = () => ((state?.links || []).find(l => l.name === "AI Hub" && l.url.startsWith("https:"))?.url) || location.origin + "/";
+function tgDay(d) {
+  const today = new Date(), y = new Date(Date.now() - 86400000);
+  if (d.toDateString() === today.toDateString()) return "Today";
+  if (d.toDateString() === y.toDateString()) return "Yesterday";
+  return d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+}
+async function tgFetch(base) {
+  const r = await fetch(base + "api/telegram", { cache: "no-store" });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+  return r.json();
+}
+async function tgLoad() {
+  clearTimeout(tgTimer);
+  try {
+    let j = await tgFetch(tgBase);
+    if (!j.enabled && j.remote && !tgBase) { tgBase = j.remote.replace(/\/$/, "") + "/"; j = await tgFetch(tgBase); }
+    tg = j; renderTg();
+  } catch (e) {
+    $("#tg-setup").innerHTML = `<p class="tg-err">Can't reach ${tgBase ? "the server's AI Hub" : "the hub"}: ${esc(e.message)}</p>`;
+  }
+  // faster while a pairing code is waiting, so the page notices the link straight away
+  if (!$("#view-telegram").hidden) tgTimer = setTimeout(tgLoad, tg?.pair_code ? 2000 : 5000);
+}
+function tgSetupHtml(t) {
+  if (!t.enabled) return `<p>No AI Hub runs the Telegram bot yet. On the server, add <code>"telegram": true</code> to <code>~/.config/aihub/config.json</code> and restart AI Hub.</p>`;
+  const bot = t.bot ? `<a href="https://t.me/${encodeURIComponent(t.bot)}" target="_blank" rel="noopener">@${esc(t.bot)}</a>` : "the bot";
+  const err = t.error ? `<p class="tg-err">⚠ ${esc(t.error)}</p>` : "";
+  const ref = t.refused && Date.now() / 1000 - t.refused.ts < 86400
+    ? `<p class="hint-muted">${esc(t.refused.name || "Someone")} (chat ${esc(t.refused.id)}) messaged the bot at ${tgTime(t.refused.ts)} and was turned away.</p>` : "";
+  const uses = `<div class="tg-uses"><h3>What sends messages</h3><p class="hint-muted"><b>TTR app</b>: each new lead and each customer reply, with an <b>Open in TTR</b> button that opens the lead's reply window. Switch it on or off in TTR → ⚙ Settings → 📧 Email → AI replies.</p></div>`;
+  if (!t.has_token || tgNewTok) return `<p>Link a Telegram bot so apps can message your phone, such as TTR when a new lead comes in.</p>
+    <ol><li>In Telegram, open <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> and send <code>/newbot</code>.</li>
+      <li>Give it a name (anything, e.g. <i>AI Hub</i>) and a username ending in <b>bot</b>.</li>
+      <li>Paste the token it sends back here. It looks like <code>123456789:AAF…</code></li></ol>
+    <div class="tg-row"><input id="tg-token" type="password" autocomplete="off" spellcheck="false" placeholder="Bot token" aria-label="Bot token">
+      <button class="pill start" data-tg="token">Save</button>${tgNewTok && t.has_token ? `<button class="pill plain" data-tg="keep">Cancel</button>` : ""}</div>
+    <p class="hint-muted">The token stays on the server. Anyone with it could control the bot, so don't share it.</p>${err}${uses}`;
+  if (!t.chats.length || t.pair_code) {
+    const code = t.pair_code ? `${t.pair_code.slice(0, 3)} ${t.pair_code.slice(3)}` : "";
+    return `<p>${t.chats.length ? "Link another phone or chat to" : "Bot " + bot + " is saved. Now link your Telegram to"} it:</p>
+      ${t.pair_code ? `<ol><li>On your phone, <a href="https://t.me/${encodeURIComponent(t.bot)}?start=${t.pair_code}" target="_blank" rel="noopener">open ${esc("@" + t.bot)} in Telegram</a> and press <b>Start</b>,</li>
+        <li>or send the bot this code:</li></ol><div class="tg-code num">${code}</div>
+        <p class="hint-muted">Works until ${tgTime(t.pair_until)}. This page shows it as soon as it's linked.</p>`
+        : `<p class="hint-muted">The last code ran out. Press <b>New code</b>.</p>`}
+      <div class="tg-row"><button class="pill ${t.pair_code ? "plain" : "start"}" data-tg="pair">New code</button>${t.chats.length ? `<button class="pill plain" data-tg="unpair">Done</button>` : ""}<button class="pill plain" data-tg="change">Use a different bot</button></div>${err}${ref}${uses}`;
+  }
+  return `<p><span class="tg-ok">✓ Linked</span> to ${bot}. Messages go to:</p>
+    <ul class="tg-chats">${t.chats.map(c => `<li><span>👤 ${esc(c.name)}</span><button class="pill plain" data-tg="unlink" data-id="${esc(c.id)}" data-name="${esc(c.name)}">Unlink</button></li>`).join("")}</ul>
+    <div class="tg-row"><button class="pill start" data-tg="test">Send a test</button><button class="pill plain" data-tg="pair">Link another phone</button><button class="pill plain" data-tg="change">Change bot</button></div>${err}${ref}${uses}`;
+}
+function tgMsgHtml(m) {
+  const meta = m.dir === "in"
+    ? `<span class="tg-src">${esc(m.from || "You")}</span><span>${tgTime(m.ts)}</span>`
+    : `<span class="tg-src">${esc(m.source || "AI Hub")}</span><span>${tgTime(m.ts)}</span>${m.edited ? `<span title="Changed at ${tgTime(m.edited)}">· edited</span>` : ""}${m.silent ? "<span>· 🔕 silent</span>" : ""}`;
+  const btns = (m.buttons || []).flat().map(b => `<a href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.text)} ↗</a>`).join("");
+  return `<div class="tg-msg ${m.dir === "in" ? "in" : "out"}"><div class="tg-meta">${meta}</div><div class="tg-body">${tgLinkify(m.text || "")}</div>${btns ? `<div class="tg-btns">${btns}</div>` : ""}${m.error ? `<div class="tg-warn">⚠ ${esc(m.error)}</div>` : ""}</div>`;
+}
+function renderTgMsgs(list) {
+  const sig = list.length + ":" + (list.at(-1)?.id || "") + ":" + list.reduce((a, m) => Math.max(a, m.edited || 0), 0);
+  if (sig === tgSeen) return;
+  tgSeen = sig;
+  const el = $("#tg-msgs"), atEnd = !el.dataset.done || el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  let day = "";
+  el.innerHTML = list.length ? list.map(m => {
+    const d = new Date(m.ts * 1000), k = d.toDateString();
+    const sep = k !== day ? `<div class="tg-day">${tgDay(d)}</div>` : "";
+    day = k;
+    return sep + tgMsgHtml(m);
+  }).join("") : `<div class="empty">No messages yet. What the bot sends you shows here, newest at the bottom.</div>`;
+  if (atEnd) { el.scrollTop = el.scrollHeight; el.dataset.done = "1"; }
+  $("#tg-chat-note").textContent = list.length ? `${list.length} message${list.length > 1 ? "s" : ""} · newest at the bottom` : "";
+}
+function renderTg() {
+  if (!tg) return;
+  const box = $("#tg-setup"), typed = $("#tg-token")?.value || "", focused = document.activeElement?.id === "tg-token";
+  if (!focused) {
+    box.innerHTML = tgSetupHtml(tg);
+    const tok = $("#tg-token");
+    if (tok && typed) tok.value = typed;
+  }
+  renderTgMsgs(tg.messages || []);
+  const ok = !!(tg.enabled && tg.chats?.length);
+  $("#tg-send").disabled = !ok;
+  $("#tg-text").placeholder = ok ? "Send a message to your phone (Ctrl+Enter sends)" : "Link a phone first (on the left)";
+  if (!$("#tg-mic").firstChild) $("#tg-mic").innerHTML = micBtn("tg-text");
+}
+$("#tg-setup").addEventListener("click", async e => {
+  const b = e.target.closest("[data-tg]");
+  if (!b || b.disabled) return;
+  const a = b.dataset.tg;
+  if (a === "change") { tgNewTok = true; renderTg(); $("#tg-token")?.focus(); return; }
+  if (a === "keep") { tgNewTok = false; renderTg(); return; }
+  let body;
+  if (a === "token") {
+    const v = ($("#tg-token")?.value || "").trim();
+    if (!v) { toast("Paste the token from @BotFather first", true); return; }
+    body = { token: v };
+  } else if (a === "pair") body = { pair: true };
+  else if (a === "unpair") body = { unpair: true };
+  else if (a === "test") body = { test: true, hub_url: tgHubUrl() };
+  else if (a === "unlink") {
+    if (!confirm(`Unlink ${b.dataset.name}? That chat stops getting messages until you link it again.`)) return;
+    body = { disconnect: +b.dataset.id };
+  } else return;
+  b.disabled = true;
+  try {
+    const j = await post(tgBase + "api/telegram/setup", body);
+    if (a === "token") { tgNewTok = false; const tok = $("#tg-token"); if (tok) tok.value = ""; document.activeElement?.blur(); }
+    tg = j; tgSeen = ""; renderTg(); tgLoad();
+    toast({ token: "Saved. Now link your Telegram", pair: "New code made", unpair: "Done", test: "Test sent: check your phone", unlink: "Unlinked" }[a]);
+  } catch (err) { toast(err.message, true); b.disabled = false; }
+});
+$("#tg-setup").addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.id === "tg-token") { e.preventDefault(); $("[data-tg=token]")?.click(); }
+});
+async function tgSendMsg() {
+  const ta = $("#tg-text"), text = ta.value.trim(), b = $("#tg-send");
+  if (!text || b.disabled) return;
+  b.disabled = true;
+  try {
+    const j = await post(tgBase + "api/telegram/send", { text, source: "AI Hub" });
+    ta.value = "";
+    toast(j.warning ? "Sent, but: " + j.warning : "Sent", !!j.warning);
+    tgSeen = ""; tgLoad();
+  } catch (err) { toast(err.message, true); }
+  finally { b.disabled = !(tg?.chats?.length); }
+}
+$("#tg-send").onclick = tgSendMsg;
+$("#tg-text").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); tgSendMsg(); } });
+$("#tg-mic").addEventListener("click", e => { const b = e.target.closest("[data-mic]"); if (b && !b.disabled) micToggle(b.dataset.mic, tgBase); });
+
 /* ---------- options ---------- */
 $("#o-refresh").value = String(opts.refresh);
 $("#o-stopped").checked = opts.stopped; $("#o-models").checked = opts.models; $("#o-confirm").checked = opts.confirm;
@@ -1128,7 +1329,7 @@ $("#o-theme").onchange = e => { opts.theme = e.target.value; saveOpts(); applyTh
 $("#o-name").value = opts.name || "";
 $("#o-name").onchange = e => { opts.name = e.target.value.trim().slice(0, 40); e.target.value = opts.name; saveOpts(); };
 
-showView(location.hash.startsWith("#doc=") ? "docs" : opts.view);
+showView(location.hash.startsWith("#doc=") ? "docs" : location.hash === "#telegram" ? "telegram" : opts.view);
 poll();
 </script>
 </body>

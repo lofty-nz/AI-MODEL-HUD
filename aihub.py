@@ -7,6 +7,9 @@ machine and answers /api/local; the page asks whichever hub it was opened from f
 which adds the other PCs' /api/local. So the server's page shows the main PC while that's on,
 and offers to wake it when it's off.
 
+The hub with "telegram": true in its config also runs a Telegram bot (telegram_hub.py) that other
+apps use to message your phone, such as the TTR app for new leads.
+
 Each PC also reports its problems (health.py: a card that stopped responding, driver errors,
 containers crashing, bad log lines, full drive, heat), with what to do about them.
 
@@ -38,6 +41,7 @@ sys.path.insert(1, os.path.expanduser("~/Documents/sysmon"))
 import aimon_core as core  # noqa: E402
 import health  # noqa: E402
 import sysmon  # noqa: E402
+import telegram_hub  # noqa: E402
 
 CONFIG = os.path.expanduser("~/.config/aihub/config.json")
 DEFAULTS = {
@@ -48,13 +52,17 @@ DEFAULTS = {
     "docs_dir": None,        # folder of docs this hub serves; None = the page uses docs_url instead
     "docs_url": None,        # another hub that has the docs
     "links": [],             # [{"name", "url", "note", "icon"}]: quick links, checked for an answer;
-                             # icon = a file in web/icons shown on the link (e.g. "ttr-logo.png")
+                             # icon = a file in web/icons shown on the link (e.g. "ttr-logo.png");
+                             # "check" = a URL to poll instead, "check_every" = seconds between checks
+                             # (default LINK_POLL_S; use a few minutes for public websites)
     "allow_reboot": False,   # True shows a Restart PC button; needs passwordless `sudo systemctl reboot`
     "pcie_caps": [],         # [{"port": "00:1c.0", "label", "gen": 1}]: slots that may be speed-capped (On/Off on the page)
     "trusted_origins": [],   # extra page addresses allowed to POST, e.g. "https://server.your-tailnet.ts.net:8090"
     "hide_rows": [],         # row keys the page leaves out, such as a model on the wrong card's Ollama
     "dictate": None,         # {"container": "open-webui", "model": "base"}: the 🎤 buttons' speech-to-text, using the
                              # Whisper model already in that container. Only the hub with the docs needs it.
+    "telegram": False,       # True = this hub runs the Telegram bot (telegram_hub.py). Only one hub may.
+    "telegram_url": None,    # another hub that has the bot (default: docs_url); its Telegram tab is shown here
     "allow": ["127.0.0.0/8", "::1/128", "192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12",
               "100.64.0.0/10"],   # who may use the hub at all: this PC, the home network, Tailscale
 }
@@ -225,10 +233,20 @@ class Local:
         row["host_off"] = bool(host and host["state"] == "off")
 
     def _check_links(self):
+        # Each check URL is polled once per round however many links share it, and a link's
+        # "check_every" spaces out its checks (public websites don't need asking every 15 s).
+        last = {}   # check URL -> (when, up)
         while True:
+            now = time.monotonic()
+            every = {}
+            for link in self.cfg["links"]:
+                url = link.get("check") or link["url"]
+                every[url] = min(every.get(url, 1e9), float(link.get("check_every") or LINK_POLL_S))
+            due = [url for url, s in every.items() if url not in last or now - last[url][0] >= s - 1]
             with ThreadPoolExecutor(8) as pool:
-                ups = list(pool.map(lambda link: answers(link.get("check") or link["url"]), self.cfg["links"]))
-            self.links = {link["url"]: up for link, up in zip(self.cfg["links"], ups)}
+                for url, up in zip(due, pool.map(answers, due)):
+                    last[url] = (now, up)
+            self.links = {link["url"]: last[link.get("check") or link["url"]][1] for link in self.cfg["links"]}
             time.sleep(LINK_POLL_S)
 
     def snapshot(self):
@@ -923,6 +941,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"self": CFG["name"], "machines": [local_state()] + peers, "links": links,
                             "label_ideas": core.LABEL_IDEAS,
                             "docs_url": None if CFG["docs_dir"] else CFG["docs_url"]})
+        elif path == "/api/telegram":
+            if TG.enabled:
+                self.send_json(TG.status())
+            else:
+                self.send_json({"enabled": False, "remote": CFG["telegram_url"] or CFG["docs_url"]})
         elif path == "/api/docs":
             if not CFG["docs_dir"]:
                 self.send_json({"docs": [], "groups": [], "remote": CFG["docs_url"]})
@@ -955,6 +978,18 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"ok": True, "text": transcribe(self.rfile.read(n))})
                 return
             req = self.body()
+            if self.path == "/api/telegram/send":    # apps on this PC (TTR) and the Telegram tab's message box
+                entry = TG.send(req.get("text"), key=req.get("key"), buttons=req.get("buttons"),
+                                silent=req.get("silent"), source=req.get("source") or "", reply_url=req.get("reply_url"))
+                self.send_json({"ok": True, "id": entry["id"], "warning": entry.get("error", "")})
+                return
+            if self.path == "/api/telegram/edit":
+                entry = TG.edit(req.get("key"), req.get("text"), req.get("buttons"))
+                self.send_json({"ok": True, "id": entry["id"], "warning": entry.get("error", "")})
+                return
+            if self.path == "/api/telegram/setup":
+                self.send_json({"ok": True, **TG.setup(req)})
+                return
             if self.path == "/api/local/action":
                 self.send_json({"ok": True, "message": LOCAL.act(req.get("key"), req.get("action"))})
             elif self.path == "/api/action":
@@ -1049,6 +1084,7 @@ HEALTH = health.Health(LOCAL)
 CAN_REBOOT = can_reboot()
 PCIE = PcieCaps(CFG["pcie_caps"])
 AUTO = AutoRestart()
+TG = telegram_hub.Telegram(CFG["telegram"], transcribe=transcribe if CFG["dictate"] else None)
 
 
 def local_state():
