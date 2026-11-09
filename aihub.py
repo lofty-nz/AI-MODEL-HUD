@@ -10,6 +10,9 @@ and offers to wake it when it's off.
 The hub with "telegram": true in its config also runs a Telegram bot (telegram_hub.py) that other
 apps use to message your phone, such as the TTR app for new leads.
 
+The hub with the docs folder also keeps checklists (checklists.py): test runs and to-do lists you
+tick, mark Works / Problem / Skipped and reply on, step by step, with answers written under each step.
+
 Each PC also reports its problems (health.py: a card that stopped responding, driver errors,
 containers crashing, bad log lines, full drive, heat), with what to do about them.
 
@@ -39,6 +42,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(1, os.path.expanduser("~/Documents/sysmon"))
 import aimon_core as core  # noqa: E402
+import checklists  # noqa: E402
 import health  # noqa: E402
 import sysmon  # noqa: E402
 import telegram_hub  # noqa: E402
@@ -951,6 +955,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"docs": [], "groups": [], "remote": CFG["docs_url"]})
             else:
                 self.send_json(list_docs(CFG["docs_dir"]))
+        elif path == "/api/checklists":   # the Checklists tab: kept in the docs folder, like the docs
+            if not CFG["docs_dir"]:
+                self.send_json({"checklists": [], "remote": CFG["docs_url"]})
+            else:
+                self.send_json(checklists.list_all(CFG["docs_dir"]))
+        elif path.startswith("/api/checklists/") and CFG["docs_dir"]:
+            try:
+                self.send_json(checklists.get(CFG["docs_dir"], path[len("/api/checklists/"):]))
+            except ValueError as e:
+                self.send_json({"error": str(e)}, 404)
         elif path.startswith("/docs/") and CFG["docs_dir"]:
             name = path[6:]
             # Only files the listing shows: no paths, no hidden files. Symlinks to docs kept elsewhere are fine.
@@ -970,6 +984,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path.startswith("/api/docs/"):
                 self.docs_post(self.path.split("?", 1)[0])
+                return
+            if self.path == "/api/checklists/save":   # a tick, result or reply on the Checklists tab
+                req = self.body()
+                self.send_json({"ok": True, "item": checklists.save(CFG["docs_dir"], req, self.who(req))})
                 return
             if self.path == "/api/dictate":   # the body is the recording itself, not JSON
                 n = int(self.headers.get("Content-Length") or 0)

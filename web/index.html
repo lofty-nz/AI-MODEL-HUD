@@ -285,6 +285,114 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
 .drop.over, .docs.over .doc-list { border-color: var(--link); background: color-mix(in srgb, var(--link) 10%, transparent); }
 .drop .picked { color: var(--text); font-weight: 600; margin-top: 6px; }
 
+/* Checklists: a list on the left, the open checklist on the right. Each step = tick | what to do | result + reply */
+.cls { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
+.cls .doc .cl-prog { color: var(--text); font-weight: 600; }
+.cls .doc .cl-prog .bad { color: var(--red); display: inline; }
+.cl-view { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; min-height: 60vh; container-type: inline-size; }
+.cl-bar { position: sticky; top: var(--hdr-h, 52px); z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+  padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); border-radius: 16px 16px 0 0; }
+.cl-tally { flex: 1 1 220px; min-width: 0; font-size: 13px; color: var(--muted); }
+.cl-tally b { color: var(--text); font-size: 15px; }
+.cl-tally .bad { color: var(--red); font-weight: 700; }
+.cl-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cl-actions .pill { padding: 6px 14px; font-size: 12px; }
+.cl-status { font-size: 12px; color: var(--muted); }
+.cl-status.warn { color: var(--red); font-weight: 700; }
+.cl-body { padding: 16px 20px 24px; }
+.cl-title { font-size: 26px; line-height: 1.15; margin: 4px 0 8px; text-wrap: balance; }
+.cl-lede { max-width: 78ch; margin: 0 0 12px; font-size: 15px; }
+.cl-how { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 6px 22px; margin: 0 0 14px; padding-left: 18px; color: var(--muted); }
+.cl-how b { color: var(--text); }
+.cl-places { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 10px; }
+.cl-place { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+.cl-place p { margin: 8px 0; color: var(--muted); font-size: 13px; }
+.cl-place dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; margin: 0; font-size: 13px; }
+.cl-place dt { color: var(--muted); }
+.cl-place dd { margin: 0; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.cl-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 4px; align-items: center; }
+.cl-filters button { background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; cursor: pointer; font-weight: 600; color: var(--muted); }
+.cl-filters button[aria-pressed="true"] { background: var(--btn); color: var(--text); }
+.cl-filters .n { margin-left: 4px; font-variant-numeric: tabular-nums; opacity: .8; }
+.cl-copybox textarea { width: 100%; min-height: 180px; margin-top: 10px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.cl-sec { margin-top: 28px; }
+.cl-sec[hidden] { display: none; }
+.cl-sec-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; border-bottom: 2px solid var(--text); padding-bottom: 6px; }
+.cl-sec-h .section-label { flex-basis: 100%; }
+.cl-sec-h h3 { margin: 0; font-size: 19px; }
+.cl-sec-meta { margin-left: auto; font-size: 12px; color: var(--muted); }
+.cl-note { color: var(--muted); font-size: 13px; margin: 8px 0 0; max-width: 82ch; }
+.cl-item { display: grid; grid-template-columns: 34px minmax(0, 1fr) minmax(0, 340px); gap: 10px 18px; padding: 16px 0;
+  border-top: 1px solid var(--line); scroll-margin-top: calc(var(--hdr-h, 52px) + 84px); }
+.cl-item[hidden] { display: none; }
+.cl-sec-h + .cl-item, .cl-note + .cl-item { border-top: 0; }
+.cl-tick { position: relative; cursor: pointer; padding-top: 1px; }
+.cl-tick input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.cl-tick span { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; border: 2px solid var(--faint);
+  background: var(--panel-2); font-weight: 800; font-size: 15px; line-height: 1; color: #fff; }
+.cl-tick:hover span { border-color: var(--green); }
+.cl-tick input:focus-visible + span { outline: 2px solid var(--link); outline-offset: 2px; }
+.cl-tick input:checked + span { background: var(--green); border-color: var(--green); }
+.cl-tick input:checked + span::after { content: "✓"; }
+.cl-item.is-fail .cl-tick input:checked + span { background: var(--red); border-color: var(--red); }
+.cl-item.is-fail .cl-tick input:checked + span::after { content: "✗"; }
+.cl-item.is-skip .cl-tick input:checked + span { background: var(--faint); border-color: var(--faint); }
+.cl-item.is-skip .cl-tick input:checked + span::after { content: "–"; }
+.cl-main { min-width: 0; }
+.cl-trow { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.cl-trow h4 { margin: 0; font-size: 16px; text-wrap: balance; }
+.cl-item.is-done .cl-trow h4 { color: var(--muted); }
+.cl-pills { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0 8px; }
+.cl-pill { font-size: 10.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px;
+  background: var(--track); color: var(--muted); white-space: nowrap; }
+.cl-pill.t-amber { background: color-mix(in srgb, var(--amber) 20%, transparent); color: var(--amber); }
+.cl-pill.t-green { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+.cl-pill.t-blue { background: color-mix(in srgb, var(--link) 18%, transparent); color: var(--link); }
+.cl-pill.t-red { background: color-mix(in srgb, var(--red) 18%, transparent); color: var(--red); }
+.cl-pill.extra { background: none; border: 1px dashed var(--faint); }
+.cl-do { margin: 0; padding-left: 20px; }
+.cl-do li { margin: 0 0 4px; }
+.cl-do1 { margin: 0; }
+.cl-main code { background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; font-size: 12.5px; }
+.cl-expect { margin-top: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.cl-expect ul { margin: 4px 0 0; padding-left: 18px; }
+.cl-expect li { margin: 0 0 2px; }
+.cl-sample { position: relative; margin-top: 10px; }
+.cl-sample pre { margin: 0; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; overflow-x: auto;
+  font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.cl-sample .pill { position: absolute; top: 6px; right: 6px; padding: 4px 10px; }
+.cl-reply { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.cl-seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.cl-seg button { flex: 1 1 0; min-width: 0; background: var(--panel-2); border: 0; border-right: 1px solid var(--line); padding: 7px 4px;
+  font-weight: 700; font-size: 13px; cursor: pointer; color: var(--text); }
+.cl-seg button:last-child { border-right: 0; }
+.cl-seg button:hover { background: var(--btn); }
+.cl-seg .pass[aria-pressed="true"] { background: color-mix(in srgb, var(--green) 20%, var(--panel)); color: var(--green); box-shadow: inset 0 0 0 2px var(--green); }
+.cl-seg .fail[aria-pressed="true"] { background: color-mix(in srgb, var(--red) 18%, var(--panel)); color: var(--red); box-shadow: inset 0 0 0 2px var(--red); }
+.cl-seg .skip[aria-pressed="true"] { background: var(--btn); color: var(--text); box-shadow: inset 0 0 0 2px var(--faint); }
+.cl-rbox { display: flex; gap: 6px; align-items: flex-end; }
+.cl-rbox textarea { flex: 1; min-width: 0; min-height: 60px; resize: vertical; background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 10px; padding: 8px 10px; font: inherit; font-size: 16px; line-height: 1.4; }
+.cl-rbox .pill.mic:not(.rec):not(:disabled) { font-size: 17px; padding: 4px 11px; }
+.cl-saved { font-size: 11.5px; color: var(--muted); min-height: 1.2em; }
+.cl-saved.warn { color: var(--red); }
+.cl-answer { border: 1px solid color-mix(in srgb, var(--link) 50%, var(--line)); background: color-mix(in srgb, var(--link) 9%, var(--panel)); border-radius: 10px; padding: 8px 11px; }
+.cl-answer[hidden] { display: none; }
+.cl-answer .section-label { color: var(--link); }
+.cl-atext { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 3px; }
+.cl-footer { margin-top: 30px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+.cl-footer p { margin: 0 0 6px; max-width: 92ch; }
+@container (max-width: 760px) {
+  .cl-item { grid-template-columns: 30px minmax(0, 1fr); }
+  .cl-reply { grid-column: 1 / -1; }
+}
+@media (max-width: 760px) {
+  .cls { grid-template-columns: minmax(0, 1fr); }
+  .cls .doc-list { position: static; max-height: none; }
+  .cl-body { padding: 12px 14px 20px; }
+  .cl-bar { padding: 8px 12px; }
+}
+
 /* Options */
 .opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; align-items: start; }
 .opts .card { padding: 16px; }
@@ -335,6 +443,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
     <nav role="tablist">
       <button role="tab" data-view="overview" aria-selected="true">Overview</button>
       <button role="tab" data-view="docs">Docs</button>
+      <button role="tab" data-view="checks">Checklists</button>
       <button role="tab" data-view="telegram">Telegram</button>
       <button role="tab" data-view="options">Options &amp; help</button>
     </nav>
@@ -364,6 +473,13 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
         <div id="doc-list"></div>
       </div>
       <div class="viewer" id="viewer"><div class="empty">Pick a document on the left.</div></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-checks" hidden>
+    <div class="cls">
+      <div class="doc-list" id="cl-list"><p class="hint-muted">Loading…</p></div>
+      <div class="cl-view" id="cl-view"><div class="empty">Loading…</div></div>
     </div>
   </section>
 
@@ -402,7 +518,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
           <input type="number" id="o-warn" min="3" max="40" step="1"></div>
         <div class="opt"><div><label for="o-theme">Theme</label></div>
           <select id="o-theme"><option value="auto">Match system</option><option value="dark">Dark</option><option value="light">Light</option></select></div>
-        <div class="opt"><div><label for="o-name">Your name</label><p>Shown on comments you add to docs. Blank uses this PC's name.</p></div>
+        <div class="opt"><div><label for="o-name">Your name</label><p>Shown on comments you add to docs and on checklist replies. Blank uses this PC's name.</p></div>
           <input type="text" id="o-name" maxlength="40" style="width:150px;background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit"></div>
       </div>
       <div class="card" id="pc-settings">
@@ -448,6 +564,14 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
           <li><b>🎤</b> next to a comment box (and <b>🎤 Speak it</b> under Paste text) lets you talk instead of type: press it, talk, press it again to stop. The server's own Whisper (the one Open WebUI's voice typing uses) writes it out in a few seconds and adds it to the box, so you can fix it before pressing Add. Browsers only allow the mic on the <b>https</b> address (the "Away from home" AI Hub link); on the plain address it offers to switch.</li>
           <li>You can still copy files into the folder by hand; titles, categories, tags and comments live in its <code>index.json</code>.</li>
         </ul>
+        <h3>Checklists</h3>
+        <ul>
+          <li>The <b>Checklists</b> tab holds test runs and to-do lists, for example a run through every part of the TTR app after a big change. Each step says what to do and what should happen.</li>
+          <li>Tick a step when it's done and mark it <b>✓ Works</b>, <b>✗ Problem</b> or <b>– Skipped</b>. The box beside it is your reply to Claude: what happened, what you'd change. <b>🎤</b> speaks it instead.</li>
+          <li>Everything saves by itself a moment after you stop typing (<b>Save</b> makes sure) and is kept on the server, so the PC and the phone see the same ticks and replies.</li>
+          <li>When you're done, tell Claude “<b>read the checklist</b>”. It reads your replies, fixes things, and writes its answer under each step (in blue). The page picks answers up by itself every few seconds.</li>
+          <li>The files are in <code>~/Documents/ai-docs/checklists</code> on the server: <code>&lt;name&gt;.json</code> is the checklist and <code>&lt;name&gt;.state.json</code> is what was ticked and written.</li>
+        </ul>
         <h3>Telegram</h3>
         <ul>
           <li>The <b>Telegram</b> tab links a Telegram bot to your phone. Apps use it to message you: the <b>TTR app</b> sends each new lead and each customer reply, with an <b>Open in TTR</b> button that opens that lead's reply window (switch it in TTR → ⚙ Settings → 📧 Email → AI replies).</li>
@@ -488,6 +612,7 @@ function showView(name) {
   document.querySelectorAll(".view").forEach(v => v.hidden = v.id !== "view-" + name);
   if (name === "docs") loadDocs();
   if (name === "telegram") tgLoad(); else clearTimeout(tgTimer);
+  if (name === "checks") clLoad(); else clStop();
 }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => showView(b.dataset.view));
 
@@ -1066,7 +1191,9 @@ async function micDone(blob) {
     if (el) {
       el.value += (el.value && !/\s$/.test(el.value) ? " " : "") + text;
       el.focus(); el.setSelectionRange(el.value.length, el.value.length);
-      toast(`Written out. Check it, then press ${m.target === "c-text" ? "Add" : m.target === "tg-text" ? "Send" : "Add document"}`);
+      el.dispatchEvent(new Event("input", { bubbles: true }));   // a checklist reply saves itself, like typing
+      toast(m.target.startsWith("cl-re-") ? "Written out. It saves by itself; fix anything that's wrong"
+        : `Written out. Check it, then press ${m.target === "c-text" ? "Add" : m.target === "tg-text" ? "Send" : "Add document"}`);
     } else {
       navigator.clipboard?.writeText(text).catch(() => {});
       toast("The box had closed, so the words are copied instead: " + text.slice(0, 80));
@@ -1316,6 +1443,334 @@ $("#tg-send").onclick = tgSendMsg;
 $("#tg-text").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); tgSendMsg(); } });
 $("#tg-mic").addEventListener("click", e => { const b = e.target.closest("[data-mic]"); if (b && !b.disabled) micToggle(b.dataset.mic, tgBase); });
 
+/* ---------- checklists ----------
+   Test runs and to-do lists kept on the docs hub (checklists.py). Each step: tick, Works / Problem / Skipped, and a
+   reply to Claude; Claude's answer shows under it. Changes save a moment after you stop (one save at a time per
+   step), and the open checklist is re-read every few seconds so the phone, the PC and Claude's answers stay in step. */
+const CL_RES = { pass: "Works", fail: "Problem", skip: "Skipped" };
+const CL_POLL_MS = 8000;
+const cl = { base: null, lists: null, cur: null, def: null, mod: 0, st: {}, els: {}, pending: {}, timers: {}, inflight: {},
+             errs: {}, filter: "all", poll: null, lastSaved: null, erred: false };
+const clMd = s => window.marked ? marked.parseInline(String(s ?? ""))
+  : esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\*(.+?)\*/g, "<i>$1</i>");
+const clItems = () => cl.def ? cl.def.sections.flatMap(s => (s.items || []).map(i => ({ ...i, sec: s.id }))) : [];
+const clCore = () => clItems().filter(i => !i.extra && !i.free);
+const clMin = m => !m ? "" : (Math.floor(m) || "") + (m % 1 ? "½" : "") + " min";
+const clTime = at => at ? new Date(at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+function clSyncHeader() { document.documentElement.style.setProperty("--hdr-h", ($("header")?.offsetHeight || 52) + "px"); }
+window.addEventListener("resize", clSyncHeader);
+clSyncHeader();
+
+async function clLoad() {
+  try {
+    let j = await (await fetch((cl.base ?? "") + "api/checklists", { cache: "no-store" })).json();
+    if (j.remote && cl.base === null) {   // this hub has no docs folder; the server's hub keeps the checklists
+      cl.base = j.remote.replace(/\/$/, "") + "/";
+      j = await (await fetch(cl.base + "api/checklists", { cache: "no-store" })).json();
+    }
+    if (cl.base === null) cl.base = "";
+    if (j.error) throw new Error(j.error);
+    cl.lists = j.checklists || [];
+    const want = location.hash.startsWith("#checklist=") ? decodeURIComponent(location.hash.slice(11)) : (cl.cur || opts.checklist);
+    const pick = cl.lists.find(x => x.id === want) || cl.lists[0];
+    clRenderList();
+    if (!pick) {
+      $("#cl-view").innerHTML = `<div class="empty">No checklists yet. Claude adds them to <code>~/Documents/ai-docs/checklists</code> on the server.</div>`;
+    } else if (pick.id !== cl.cur || !cl.def) await clOpen(pick.id);
+    else clRefresh();
+    clearInterval(cl.poll);
+    cl.poll = setInterval(() => { if (document.visibilityState === "visible" && cl.cur) clRefresh(); }, CL_POLL_MS);
+  } catch (e) {
+    $("#cl-list").innerHTML = `<div class="err">Couldn't load the checklists: ${esc(e.message)}</div>`;
+  }
+}
+function clStop() { clearInterval(cl.poll); cl.poll = null; clFlushAll(); }
+
+function clRenderList() {
+  if (!cl.lists) return;
+  $("#cl-list").innerHTML = `<div class="doc-group section-label">Checklists</div>` + cl.lists.map(x => {
+    const c = x.counts || {};
+    const prog = x.error ? `<span class="bad">⚠ ${esc(x.error)}</span>`
+      : `${c.done ?? 0} of ${c.total ?? 0} done${c.problems ? ` · <span class="bad">${c.problems} ${c.problems === 1 ? "problem" : "problems"}</span>` : ""}${c.answers ? ` · ${c.answers} answered` : ""}`;
+    return `<button class="doc" data-cl-open="${esc(x.id)}" aria-current="${x.id === cl.cur}">
+      <b>${esc(x.title)}</b><span>${esc(x.about || "")}</span>
+      <span class="cl-prog" data-cl-prog="${esc(x.id)}">${prog}</span>
+      ${x.made ? `<span>${esc(new Date(x.made + "T12:00").toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }))}</span>` : ""}</button>`;
+  }).join("");
+}
+$("#cl-list").addEventListener("click", e => { const b = e.target.closest("[data-cl-open]"); if (b) clOpen(b.dataset.clOpen); });
+
+async function clFetch(id) {
+  const j = await (await fetch(cl.base + "api/checklists/" + encodeURIComponent(id), { cache: "no-store" })).json();
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+async function clOpen(id) {
+  await clFlushAll();
+  try {
+    const j = await clFetch(id);
+    cl.cur = id; cl.def = j.list; cl.mod = j.modified; cl.st = {}; cl.errs = {}; cl.filter = "all";
+    for (const it of clItems()) cl.st[it.id] = { ...(j.state.items[it.id] || {}) };
+    opts.checklist = id; saveOpts();
+    history.replaceState(null, "", "#checklist=" + encodeURIComponent(id));
+    clBuild(); clRenderList();
+  } catch (e) { $("#cl-view").innerHTML = `<div class="err">Couldn't open that checklist: ${esc(e.message)}</div>`; }
+}
+async function clRefresh() {
+  if (!cl.cur) return;
+  const id = cl.cur;
+  let j;
+  try { j = await clFetch(id); } catch (e) { return; }   // next round tries again; saves show their own errors
+  if (id !== cl.cur) return;
+  if (j.modified !== cl.mod) {   // the checklist itself was changed (Claude added or reworded steps): redraw it
+    const keep = cl.st;
+    cl.def = j.list; cl.mod = j.modified; cl.st = {};
+    for (const it of clItems()) cl.st[it.id] = { ...(j.state.items[it.id] || {}), ...(keep[it.id] && cl.pending[it.id] ? keep[it.id] : {}) };
+    clBuild();
+  }
+  for (const it of clItems()) {
+    const v = j.state.items[it.id] || {}, s = cl.st[it.id] ||= {}, p = cl.pending[it.id] || {}, busy = !!cl.inflight[it.id];
+    if (!("done" in p) && !busy) s.done = !!v.done;
+    if (!("result" in p) && !busy) s.result = v.result || "";
+    if (!("reply" in p) && !busy && document.activeElement?.id !== "cl-re-" + it.id) s.reply = v.reply || "";
+    s.answer = v.answer || ""; s.answer_at = v.answer_at || 0; s.answer_by = v.answer_by || "";
+    if (v.at && !busy && !cl.pending[it.id]) { s.at = v.at; s.by = v.by; }
+    clPaint(it.id);
+  }
+  clPaintSummary(); clPaintStatus();
+}
+
+function clItemHtml(it, places) {
+  const pill = (t, tone) => `<span class="cl-pill${tone ? " t-" + esc(tone) : ""}">${esc(t)}</span>`;
+  const pl = it.where && places[it.where];
+  const pills = [pl ? pill(pl.short || pl.label, pl.tone) : "", it.dev ? pill(it.dev) : "", it.min ? pill(clMin(it.min)) : "",
+                 it.extra ? `<span class="cl-pill extra">Extra · if you have time</span>` : ""].join("");
+  const steps = (it.do || []).length === 1 ? `<p class="cl-do1">${clMd(it.do[0])}</p>`
+    : (it.do || []).length ? `<ol class="cl-do">${it.do.map(x => `<li>${clMd(x)}</li>`).join("")}</ol>` : "";
+  const sample = it.sample ? `<div class="cl-sample"><pre>${esc(it.sample)}</pre><button type="button" class="pill plain" data-cl-copy="${esc(it.id)}">Copy</button></div>` : "";
+  const expect = (it.expect || []).length ? `<div class="cl-expect"><div class="section-label">Should happen</div><ul>${it.expect.map(x => `<li>${clMd(x)}</li>`).join("")}</ul></div>` : "";
+  const seg = it.free ? "" : `<div class="cl-seg" role="group" aria-label="Result">${Object.entries({ pass: "✓ Works", fail: "✗ Problem", skip: "– Skipped" })
+    .map(([r, t]) => `<button type="button" class="${r}" data-cl-res="${r}" aria-pressed="false">${t}</button>`).join("")}</div>`;
+  return `<article class="cl-item" data-item="${esc(it.id)}" aria-label="${esc(it.title)}">
+    <label class="cl-tick" title="Tick when done"><input type="checkbox" data-cl-done aria-label="Done: ${esc(it.title)}"><span aria-hidden="true"></span></label>
+    <div class="cl-main"><div class="cl-trow"><h4>${esc(it.title)}</h4><span class="badge" data-cl-st hidden></span></div>
+      ${pills ? `<div class="cl-pills">${pills}</div>` : ""}${steps}${sample}${expect}</div>
+    <div class="cl-reply">${seg}
+      <div class="cl-rbox"><textarea id="cl-re-${esc(it.id)}" data-cl-reply rows="2" maxlength="10000"
+        placeholder="${it.free ? "Anything for Claude…" : "Reply to Claude: what happened, what you’d change…"}" aria-label="Reply to Claude about: ${esc(it.title)}"></textarea>${micBtn("cl-re-" + esc(it.id))}</div>
+      <div class="cl-saved" aria-live="polite"></div>
+      <div class="cl-answer" hidden><div class="section-label" data-cl-aby>Claude</div><div class="cl-atext"></div></div>
+    </div></article>`;
+}
+function clBuild() {
+  const d = cl.def, places = d.places || {}, v = $("#cl-view");
+  const placeCards = Object.values(places).filter(p => p.text || (p.links || []).length).map(p => `<div class="cl-place">
+      <span class="cl-pill${p.tone ? " t-" + esc(p.tone) : ""}">${esc(p.label || "")}</span>
+      ${p.text ? `<p>${clMd(p.text)}</p>` : ""}
+      ${(p.links || []).length ? `<dl>${p.links.map(([l, u]) => `<dt>${esc(l)}</dt><dd><a href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a></dd>`).join("")}</dl>` : ""}
+    </div>`).join("");
+  v.innerHTML = `<div class="cl-bar">
+      <div class="cl-tally"><div id="cl-tally"></div><div class="meter"><i id="cl-meter"></i></div></div>
+      <div class="cl-actions"><span class="cl-status" id="cl-status" aria-live="polite"></span>
+        <button type="button" class="pill plain" data-cl="next" title="Jump to the next step that isn't ticked">Next ↓</button>
+        <button type="button" class="pill plain" data-cl="copy" title="Every step with its result and your reply, as plain text">Copy as text</button>
+        <button type="button" class="pill start" data-cl="save">Save</button></div>
+    </div>
+    <div class="cl-body">
+      ${d.eyebrow ? `<div class="section-label">${esc(d.eyebrow)}</div>` : ""}
+      <h2 class="cl-title">${esc(d.title || cl.cur)}</h2>
+      ${d.intro ? `<p class="cl-lede">${clMd(d.intro)}</p>` : ""}
+      <ol class="cl-how">
+        <li>Do the steps in order. Tick each one when it's done and pick <b>✓ Works</b>, <b>✗ Problem</b> or <b>– Skipped</b>.</li>
+        <li>Write to Claude in the box beside any step (or press <b>🎤</b> and say it): what happened, what you'd change. It saves by itself; <b>Save</b> makes sure.</li>
+        <li>When you're done, tell Claude “<b>read the checklist</b>”. Its answers show up under each step, in blue.</li>
+      </ol>
+      ${placeCards ? `<div class="cl-places">${placeCards}</div>` : ""}
+      <div class="cl-filters" role="group" aria-label="Show">
+        ${[["all", "All"], ["todo", "To do"], ["fail", "Problems"], ["reply", "With a reply"], ["ans", "Answered"]]
+          .map(([f, t]) => `<button type="button" data-clf="${f}" aria-pressed="${cl.filter === f}">${t}${f === "all" ? "" : `<span class="n" data-cln="${f}"></span>`}</button>`).join("")}
+      </div>
+      <div class="cl-copybox" id="cl-copybox" hidden><textarea readonly aria-label="Results as text"></textarea></div>
+      ${d.sections.map((s, si) => `<section class="cl-sec" data-sec="${esc(s.id)}">
+        <div class="cl-sec-h"><span class="section-label">Part ${si + 1}</span><h3>${esc(s.title)}</h3><span class="cl-sec-meta" data-cl-secmeta></span></div>
+        ${s.note ? `<p class="cl-note">${clMd(s.note)}</p>` : ""}
+        ${(s.items || []).map(it => clItemHtml(it, places)).join("")}
+      </section>`).join("")}
+      <p class="empty" id="cl-empty" hidden>Nothing to show with this filter.</p>
+      ${d.footer ? `<div class="cl-footer">${window.marked ? marked.parse(String(d.footer)) : `<p>${esc(d.footer)}</p>`}</div>` : ""}
+    </div>`;
+  v.querySelectorAll(".cl-body a[href^='http']").forEach(a => { a.target = "_blank"; a.rel = "noopener"; });
+  cl.els = {};
+  for (const row of v.querySelectorAll(".cl-item")) {
+    cl.els[row.dataset.item] = { row, cb: $("[data-cl-done]", row), st: $("[data-cl-st]", row), btns: [...row.querySelectorAll("[data-cl-res]")],
+      ta: $("[data-cl-reply]", row), saved: $(".cl-saved", row), ans: $(".cl-answer", row), aby: $("[data-cl-aby]", row), atext: $(".cl-atext", row) };
+  }
+  for (const it of clItems()) clPaint(it.id);
+  clPaintSummary(); clPaintStatus(); micUi();
+}
+
+function clAutosize(ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight + 2, 340) + "px"; }
+function clPaint(id) {
+  const s = cl.st[id] || {}, e = cl.els[id];
+  if (!e) return;
+  e.cb.checked = !!s.done;
+  e.btns.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.clRes === s.result)));
+  e.row.classList.toggle("is-done", !!s.done);
+  for (const r of ["pass", "fail", "skip"]) e.row.classList.toggle("is-" + r, s.result === r);
+  e.st.hidden = !s.result;
+  if (s.result) { e.st.className = "badge " + (s.result === "pass" ? "on" : s.result === "fail" ? "bad" : "off"); e.st.textContent = CL_RES[s.result].toUpperCase(); }
+  const typing = document.activeElement === e.ta || (cl.pending[id] && "reply" in cl.pending[id]);
+  if (!typing && e.ta.value !== (s.reply || "")) { e.ta.value = s.reply || ""; clAutosize(e.ta); }
+  e.ans.hidden = !s.answer;
+  if (s.answer) { e.aby.textContent = (s.answer_by || "Claude") + (s.answer_at ? " · " + fmtWhen(s.answer_at) : ""); e.atext.textContent = s.answer; }
+  clPaintSaved(id);
+}
+function clPaintSaved(id) {
+  const e = cl.els[id], s = cl.st[id] || {};
+  if (!e) return;
+  let t = "", warn = false;
+  if (cl.inflight[id]) t = "Saving…";
+  else if (cl.errs[id]) { t = "Not saved yet: " + cl.errs[id].message + " · trying again"; warn = true; }
+  else if (cl.pending[id]) t = "…";
+  else if (s.at) t = "Saved " + clTime(s.at) + (s.by ? " · " + s.by : "");
+  e.saved.textContent = t; e.saved.classList.toggle("warn", warn);
+}
+function clVisible(id) {
+  const s = cl.st[id] || {};
+  return cl.filter === "todo" ? !s.done : cl.filter === "fail" ? s.result === "fail"
+    : cl.filter === "reply" ? !!(s.reply || "").trim() : cl.filter === "ans" ? !!s.answer : true;
+}
+function clPaintSummary() {
+  if (!cl.def || !$("#cl-tally")) return;
+  const core = clCore(), all = clItems(), st = id => cl.st[id] || {};
+  const done = core.filter(i => st(i.id).done).length;
+  const mins = core.filter(i => !st(i.id).done).reduce((a, i) => a + (+i.min || 0), 0);
+  const n = { todo: all.filter(i => !st(i.id).done).length, fail: all.filter(i => st(i.id).result === "fail").length,
+              reply: all.filter(i => (st(i.id).reply || "").trim()).length, ans: all.filter(i => st(i.id).answer).length };
+  $("#cl-tally").innerHTML = `<b>${done}</b> of ${core.length} done${n.fail ? ` · <span class="bad">${n.fail} ${n.fail === 1 ? "problem" : "problems"}</span>` : ""}`
+    + (done === core.length ? " · all done" : mins ? ` · about ${Math.ceil(mins)} min left` : "");
+  $("#cl-meter").style.width = (core.length ? 100 * done / core.length : 0) + "%";
+  for (const [k, v] of Object.entries(n)) { const el = $(`[data-cln="${k}"]`); if (el) el.textContent = v; }
+  let any = false;
+  for (const sec of document.querySelectorAll("#cl-view .cl-sec")) {
+    const its = clItems().filter(i => i.sec === sec.dataset.sec), c = its.filter(i => !i.extra && !i.free);
+    let vis = 0;
+    for (const i of its) { const v = clVisible(i.id); if (cl.els[i.id]) cl.els[i.id].row.hidden = !v; if (v) vis++; }
+    sec.hidden = !vis; if (vis) any = true;
+    const m = c.reduce((a, i) => a + (+i.min || 0), 0);
+    $("[data-cl-secmeta]", sec).textContent = c.length ? `${c.filter(i => st(i.id).done).length} of ${c.length} done · ${clMin(m)}` : "";
+  }
+  $("#cl-empty").hidden = any;
+  const entry = cl.lists?.find(x => x.id === cl.cur);   // keep the card on the left in step
+  if (entry) {
+    entry.counts = { ...(entry.counts || {}), done, total: core.length, problems: n.fail, answers: n.ans };
+    const p = $(`[data-cl-prog="${CSS.escape(cl.cur)}"]`);
+    if (p) p.innerHTML = `${done} of ${core.length} done${n.fail ? ` · <span class="bad">${n.fail} ${n.fail === 1 ? "problem" : "problems"}</span>` : ""}${n.ans ? ` · ${n.ans} answered` : ""}`;
+  }
+}
+function clPaintStatus() {
+  const el = $("#cl-status");
+  if (!el) return;
+  const busy = Object.values(cl.inflight).some(Boolean), waiting = Object.keys(cl.pending).length > 0, bad = Object.values(cl.errs).some(Boolean);
+  el.textContent = bad ? "Not saved · retrying" : busy || waiting ? "Saving…" : cl.lastSaved ? "All saved · " + cl.lastSaved.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "All saved";
+  el.classList.toggle("warn", bad);
+}
+
+function clChange(id, ch, delay) {
+  Object.assign(cl.st[id] ||= {}, ch);
+  cl.pending[id] = { ...(cl.pending[id] || {}), ...ch };
+  clPaint(id); clPaintSummary(); clPaintStatus();
+  clearTimeout(cl.timers[id]); cl.timers[id] = setTimeout(() => clFlush(id), delay);
+}
+async function clFlush(id) {
+  clearTimeout(cl.timers[id]); cl.timers[id] = null;
+  if (cl.inflight[id]) await cl.inflight[id].catch(() => {});
+  const ch = cl.pending[id], list = cl.cur;
+  if (!ch || !list) return;
+  delete cl.pending[id];
+  const p = post(cl.base + "api/checklists/save", { list, item: id, by: opts.name || "", ...ch });
+  cl.inflight[id] = p;
+  clPaintSaved(id); clPaintStatus();
+  try {
+    const j = await p;
+    cl.errs[id] = null; cl.lastSaved = new Date(); cl.erred = false;
+    if (list === cl.cur && j.item) { cl.st[id].at = j.item.at; cl.st[id].by = j.item.by; }
+  } catch (e) {
+    if (list === cl.cur) {
+      cl.pending[id] = { ...ch, ...(cl.pending[id] || {}) };
+      cl.errs[id] = e;
+      cl.timers[id] = setTimeout(() => clFlush(id), 8000);
+    }
+    if (!cl.erred) { cl.erred = true; toast("Checklist not saved: " + e.message, true); }
+  } finally {
+    cl.inflight[id] = null; clPaintSaved(id); clPaintStatus();
+  }
+  if (cl.pending[id] && !cl.timers[id]) return clFlush(id);
+}
+function clFlushAll() { return Promise.all(Object.keys(cl.pending).map(clFlush)); }
+
+function clText() {
+  const out = [(cl.def.title || cl.cur) + " · results", ""];
+  cl.def.sections.forEach((s, si) => {
+    out.push(`Part ${si + 1}: ${s.title}`);
+    for (const it of s.items || []) {
+      const st = cl.st[it.id] || {}, r = st.result ? CL_RES[st.result].toUpperCase() : st.done ? "Done" : "Not done";
+      out.push(`  [${st.done ? "x" : " "}] ${it.id}  ${it.title}  —  ${r}`);
+      if ((st.reply || "").trim()) out.push("        Reply: " + st.reply.trim().replace(/\n/g, "\n        "));
+    }
+    out.push("");
+  });
+  return out.join("\n");
+}
+function clCopy(text, btn) {
+  const old = btn.textContent;
+  const ok = () => { btn.textContent = "Copied"; setTimeout(() => { btn.textContent = old; }, 1500); };
+  const fail = () => { const box = $("#cl-copybox"), ta = $("textarea", box); box.hidden = false; ta.value = text; ta.focus(); ta.select(); };
+  try { navigator.clipboard.writeText(text).then(ok, fail); } catch (e) { fail(); }
+}
+
+const clView = $("#cl-view");
+clView.addEventListener("change", e => {
+  const row = e.target.closest(".cl-item");
+  if (row && e.target.matches("[data-cl-done]")) clChange(row.dataset.item, { done: e.target.checked }, 250);
+});
+clView.addEventListener("input", e => {
+  const row = e.target.closest(".cl-item");
+  if (row && e.target.matches("[data-cl-reply]")) { clAutosize(e.target); clChange(row.dataset.item, { reply: e.target.value }, 1200); }
+});
+clView.addEventListener("focusout", e => {
+  const row = e.target.closest(".cl-item");
+  if (row && e.target.matches("[data-cl-reply]") && cl.pending[row.dataset.item]) clFlush(row.dataset.item);
+});
+clView.addEventListener("click", e => {
+  const t = e.target, row = t.closest(".cl-item");
+  const res = t.closest("[data-cl-res]");
+  if (res && row) {
+    const id = row.dataset.item, r = res.dataset.clRes, nv = (cl.st[id] || {}).result === r ? "" : r;
+    clChange(id, nv ? { result: nv, done: true } : { result: "" }, 250);
+    return;
+  }
+  const m = t.closest("[data-mic]");
+  if (m && !m.disabled) { micToggle(m.dataset.mic, cl.base); return; }
+  const cp = t.closest("[data-cl-copy]");
+  if (cp) { const it = clItems().find(i => i.id === cp.dataset.clCopy); if (it) clCopy(it.sample, cp); return; }
+  const f = t.closest("[data-clf]");
+  if (f) { cl.filter = f.dataset.clf; clView.querySelectorAll("[data-clf]").forEach(b => b.setAttribute("aria-pressed", String(b === f))); clPaintSummary(); return; }
+  const a = t.closest("[data-cl]")?.dataset.cl;
+  if (a === "save") { const b = t.closest("[data-cl]"); b.textContent = "Saving…"; clFlushAll().then(() => { b.textContent = "Save"; clPaintStatus(); }); }
+  else if (a === "copy") clCopy(clText(), t.closest("[data-cl]"));
+  else if (a === "next") {
+    const next = clCore().find(i => !(cl.st[i.id] || {}).done && cl.els[i.id] && !cl.els[i.id].row.hidden);
+    if (next) cl.els[next.id].row.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+    else toast("Every step is ticked");
+  }
+});
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") clFlushAll(); });
+window.addEventListener("pagehide", () => clFlushAll());
+window.addEventListener("beforeunload", e => {
+  if (Object.keys(cl.pending).length || Object.values(cl.inflight).some(Boolean)) { clFlushAll(); e.preventDefault(); e.returnValue = ""; }
+});
+
 /* ---------- options ---------- */
 $("#o-refresh").value = String(opts.refresh);
 $("#o-stopped").checked = opts.stopped; $("#o-models").checked = opts.models; $("#o-confirm").checked = opts.confirm;
@@ -1329,7 +1784,8 @@ $("#o-theme").onchange = e => { opts.theme = e.target.value; saveOpts(); applyTh
 $("#o-name").value = opts.name || "";
 $("#o-name").onchange = e => { opts.name = e.target.value.trim().slice(0, 40); e.target.value = opts.name; saveOpts(); };
 
-showView(location.hash.startsWith("#doc=") ? "docs" : location.hash === "#telegram" ? "telegram" : opts.view);
+showView(location.hash.startsWith("#doc=") ? "docs" : location.hash.startsWith("#checklist=") ? "checks"
+  : location.hash === "#telegram" ? "telegram" : opts.view);
 poll();
 </script>
 </body>
