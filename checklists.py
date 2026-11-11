@@ -12,7 +12,9 @@ Files live in the docs folder, in a "checklists" folder of their own:
        "sections": [{"id", "title", "note",
                      "items": [{"id", "title", "where": "<places key>", "dev", "min" (minutes),
                                 "extra" (true: optional, not counted), "free" (true: a free-text box only),
-                                "do": ["Markdown", ...], "expect": ["Markdown", ...], "sample": "text to copy"}]}]}
+                                "do": ["Markdown", ...], "expect": ["Markdown", ...], "sample": "text to copy"}]}],
+       "runs": [{"label", "when", "summary", "checklist": "<id of the saved copy>", "pdf": "<docs file>"}]  (earlier runs),
+       "archived": {"of": "<id>", "label", "at"}  (set on a saved copy: the page shows it read-only)}
   <id>.state.json  what people ticked and wrote, per step:
       {"items": {"<item id>": {"done", "result": "pass|fail|skip|", "reply", "at", "by",
                                 "shots": [{"f": "<file name>", "at", "by"}],
@@ -25,6 +27,9 @@ Command line (on the PC that has the docs folder):
   python3 checklists.py show <id> [--all]                steps that need a look (problems, replies, screenshots),
                                                          or all of them; screenshots are listed by full path
   python3 checklists.py answer <id> <item> "text" [--by NAME]   write the answer shown under a step ("" removes it)
+  python3 checklists.py archive <id> <new id> --label "Run 1" [--pdf "<docs file>"]
+                                                         save a read-only copy of this run (ticks, replies, answers,
+                                                         screenshots) and list it under "Previous runs" on <id>
 """
 import fcntl
 import json
@@ -148,7 +153,8 @@ def list_all(docs_dir):
         try:
             data, mtime = load_list(docs_dir, cid)
             entry = {"id": cid, "title": data.get("title") or cid, "about": data.get("about", ""),
-                     "made": data.get("made", ""), "modified": mtime}
+                     "made": data.get("made", ""), "modified": mtime,
+                     "archived": bool(data.get("archived"))}
             try:
                 entry["counts"] = counts(data, read_state(docs_dir, cid))
             except ValueError as e:
@@ -156,7 +162,7 @@ def list_all(docs_dir):
         except ValueError as e:
             entry = {"id": cid, "title": cid, "about": "", "made": "", "modified": 0, "error": str(e)}
         out.append(entry)
-    out.sort(key=lambda e: (e.get("made") or "", e.get("modified") or 0), reverse=True)
+    out.sort(key=lambda e: (not e.get("archived"), e.get("made") or "", e.get("modified") or 0), reverse=True)
     return {"checklists": out}
 
 
@@ -170,10 +176,16 @@ def _item_ids(data):
     return {i["id"] for i in items(data)}
 
 
+def _not_archived(data):
+    if data.get("archived"):
+        raise ValueError("This is a saved copy of an earlier run, so it can't be changed")
+
+
 def save(docs_dir, req, by):
     """A tick, a result or a reply from the page: merges only the fields sent."""
     cid = _check_id(req.get("list"))
     data, _ = load_list(docs_dir, cid)
+    _not_archived(data)
     item = str(req.get("item") or "")
     if item not in _item_ids(data):
         raise ValueError("That step isn't in the checklist any more; reload the page")
@@ -230,6 +242,7 @@ def add_shot(docs_dir, cid, item, data, by):
     """A screenshot pasted or picked for a step: saved next to the checklist and listed on the step."""
     cid = _check_id(cid)
     data_, _ = load_list(docs_dir, cid)
+    _not_archived(data_)
     item = str(item or "")
     if item not in _item_ids(data_):
         raise ValueError("That step isn't in the checklist any more; reload the page")
@@ -274,6 +287,7 @@ def add_shot(docs_dir, cid, item, data, by):
 def remove_shot(docs_dir, cid, item, name):
     """× on a screenshot: off the step, and the file moves to shots/<id>/.removed/ (kept, not deleted)."""
     cid = _check_id(cid)
+    _not_archived(load_list(docs_dir, cid)[0])
     path = shot_path(docs_dir, cid, name)
     item = str(item or "")
     folder = _dir(docs_dir)
@@ -314,6 +328,57 @@ def answer(docs_dir, cid, item, text, by="Claude"):
                 entry.pop(k, None)
         _write_json(os.path.join(folder, cid + ".state.json"), state)
     return entry
+
+
+def archive(docs_dir, cid, new_id, label, pdf=None):
+    """A read-only copy of a run as it stands (ticks, replies, answers, screenshots), listed under "runs" on the
+    original so the page links to it. The original keeps its state; clearing it for the next run is separate."""
+    import shutil
+    cid, new_id = _check_id(cid), _check_id(new_id)
+    folder = _dir(docs_dir)
+    with _locked(folder):
+        if os.path.exists(os.path.join(folder, new_id + ".json")):
+            raise ValueError("%s already exists" % new_id)
+        data, _ = load_list(docs_dir, cid)
+        _not_archived(data)
+        state = read_state(docs_dir, cid)
+        c = counts(data, state)
+        shots = sum(len(v.get("shots") or []) for v in state["items"].values() if isinstance(v, dict))
+        when = time.strftime("%-d %b %Y", time.localtime())
+        summary = "%d of %d done · %d problem%s · %d repl%s · %d screenshot%s" % (
+            c["done"], c["total"], c["problems"], "" if c["problems"] == 1 else "s",
+            c["replies"], "y" if c["replies"] == 1 else "ies", shots, "" if shots == 1 else "s")
+        copy = json.loads(json.dumps(data))
+        copy.pop("runs", None)
+        copy["archived"] = {"of": cid, "label": label, "at": round(time.time()), "summary": summary}
+        copy["title"] = "%s · %s (%s)" % (data.get("title") or cid, label, when)
+        copy["about"] = "Saved results: " + summary
+        copy["made"] = time.strftime("%Y-%m-%d")
+        src = shot_dir(docs_dir, cid)
+        if os.path.isdir(src):
+            shutil.copytree(src, shot_dir(docs_dir, new_id), ignore=shutil.ignore_patterns(".removed", ".*.tmp"))
+        _write_json(os.path.join(folder, new_id + ".state.json"), state)
+        _write_json(os.path.join(folder, new_id + ".json"), copy)
+        run = {"label": label, "when": when, "summary": summary, "checklist": new_id}
+        if pdf:
+            run["pdf"] = pdf
+        data["runs"] = [r for r in data.get("runs") or [] if r.get("checklist") != new_id] + [run]
+        _write_json(os.path.join(folder, cid + ".json"), data)
+    return run
+
+
+def set_run_pdf(docs_dir, cid, new_id, pdf):
+    """Attach the PDF of a saved run to its entry under "runs"."""
+    folder = _dir(docs_dir)
+    with _locked(folder):
+        data, _ = load_list(docs_dir, cid)
+        for r in data.get("runs") or []:
+            if r.get("checklist") == new_id:
+                r["pdf"] = pdf
+                break
+        else:
+            raise ValueError("No saved run %s on %s" % (new_id, cid))
+        _write_json(os.path.join(folder, _check_id(cid) + ".json"), data)
 
 
 # ---------------------------------------------------------------- command line
@@ -374,6 +439,15 @@ def _main(argv):
             by, rest = rest[i + 1], rest[:i] + rest[i + 2:]
         answer(docs_dir, rest[0], rest[1], rest[2], by)
         print("Answer saved under %s in %s" % (rest[1], rest[0]))
+        return 0
+    if cmd == "archive" and len(rest) >= 2 and "--label" in rest:
+        opt = lambda k: rest[rest.index(k) + 1] if k in rest and rest.index(k) + 1 < len(rest) else None
+        run = archive(docs_dir, rest[0], rest[1], opt("--label"), opt("--pdf"))
+        print("Saved %s as %s: %s" % (rest[0], rest[1], run["summary"]))
+        return 0
+    if cmd == "run-pdf" and len(rest) == 3:
+        set_run_pdf(docs_dir, rest[0], rest[1], rest[2])
+        print("PDF linked")
         return 0
     print(__doc__.split("Command line", 1)[1])
     return 2

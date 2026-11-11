@@ -388,6 +388,16 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
   background: rgba(0, 0, 0, .62); color: #fff; font-size: 16px; line-height: 24px; cursor: pointer; }
 .cl-shot button:hover, .cl-shot button:focus-visible { background: var(--red); }
 .cl-item.cl-drop { outline: 2px dashed var(--link); outline-offset: 4px; border-radius: 6px; }
+.cl-runs { margin: 0 0 14px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+.cl-runs ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.cl-runs li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.cl-runs .meta { color: var(--muted); font-size: 13px; }
+.cl-archived { margin: 0 0 14px; border: 1px solid color-mix(in srgb, var(--amber) 55%, var(--line)); background: color-mix(in srgb, var(--amber) 10%, var(--panel));
+  border-radius: 12px; padding: 10px 14px; }
+.cl-ro .cl-shotbar, .cl-ro .cl-shot button, .cl-ro .cl-rbox .pill.mic, .cl-ro [data-cl="save"] { display: none; }
+.cl-ro .cl-tick { cursor: default; }
+.cl-how[hidden] { display: none; }
+.cl-ro .cl-seg button { cursor: default; }
 .cl-saved.warn { color: var(--red); }
 .cl-answer { border: 1px solid color-mix(in srgb, var(--link) 50%, var(--line)); background: color-mix(in srgb, var(--link) 9%, var(--panel)); border-radius: 10px; padding: 8px 11px; }
 .cl-answer[hidden] { display: none; }
@@ -1502,15 +1512,18 @@ function clStop() { clearInterval(cl.poll); cl.poll = null; clFlushAll(); }
 
 function clRenderList() {
   if (!cl.lists) return;
-  $("#cl-list").innerHTML = `<div class="doc-group section-label">Checklists</div>` + cl.lists.map(x => {
+  const card = x => {
     const c = x.counts || {};
-    const prog = x.error ? `<span class="bad">⚠ ${esc(x.error)}</span>`
+    const prog = x.error ? `<span class="bad">⚠ ${esc(x.error)}</span>` : x.archived ? "Saved copy"
       : `${c.done ?? 0} of ${c.total ?? 0} done${c.problems ? ` · <span class="bad">${c.problems} ${c.problems === 1 ? "problem" : "problems"}</span>` : ""}${c.answers ? ` · ${c.answers} answered` : ""}`;
     return `<button class="doc" data-cl-open="${esc(x.id)}" aria-current="${x.id === cl.cur}">
       <b>${esc(x.title)}</b><span>${esc(x.about || "")}</span>
       <span class="cl-prog" data-cl-prog="${esc(x.id)}">${prog}</span>
       ${x.made ? `<span>${esc(new Date(x.made + "T12:00").toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }))}</span>` : ""}</button>`;
-  }).join("");
+  };
+  const now = cl.lists.filter(x => !x.archived), old = cl.lists.filter(x => x.archived);
+  $("#cl-list").innerHTML = `<div class="doc-group section-label">Checklists</div>` + now.map(card).join("")
+    + (old.length ? `<div class="doc-group section-label">Previous runs (saved, read only)</div>` + old.map(card).join("") : "");
 }
 $("#cl-list").addEventListener("click", e => { const b = e.target.closest("[data-cl-open]"); if (b) clOpen(b.dataset.clOpen); });
 
@@ -1597,8 +1610,14 @@ function clBuild() {
     <div class="cl-body">
       ${d.eyebrow ? `<div class="section-label">${esc(d.eyebrow)}</div>` : ""}
       <h2 class="cl-title">${esc(d.title || cl.cur)}</h2>
+      ${d.archived ? `<div class="cl-archived"><b>📁 ${esc(d.archived.label || "Saved run")}: a saved copy of the results.</b> Read only: ticks, replies, screenshots and answers as they were${d.archived.at ? " on " + esc(fmtWhen(d.archived.at)) : ""}.
+        ${d.archived.of ? `<a href="#checklist=${encodeURIComponent(d.archived.of)}" data-cl-goto="${esc(d.archived.of)}">Open the current checklist →</a>` : ""}</div>` : ""}
+      ${(d.runs || []).length ? `<div class="cl-runs"><div class="section-label">Previous runs</div><ul>${d.runs.map(r => `<li>
+        <a href="#checklist=${encodeURIComponent(r.checklist)}" data-cl-goto="${esc(r.checklist)}"><b>${esc(r.label || "Run")}</b>${r.when ? " · " + esc(r.when) : ""}</a>
+        <span class="meta">${esc(r.summary || "")}</span>
+        ${r.pdf ? `<a href="${esc(cl.base + "docs/" + encodeURIComponent(r.pdf))}" target="_blank" rel="noopener">📄 PDF</a>` : ""}</li>`).join("")}</ul></div>` : ""}
       ${d.intro ? `<p class="cl-lede">${clMd(d.intro)}</p>` : ""}
-      <ol class="cl-how">
+      <ol class="cl-how"${d.archived ? " hidden" : ""}>
         <li>Do the steps in order. Tick each one when it's done and pick <b>✓ Works</b>, <b>✗ Problem</b> or <b>– Skipped</b>.</li>
         <li>Write to Claude in the box beside any step (or press <b>🎤</b> and say it): what happened, what you'd change. It saves by itself; <b>Save</b> makes sure.</li>
         <li>To show Claude something, take a screenshot and press <b>📋 Paste screenshot</b> on that step (or Ctrl+V in its box). <b>📷 Add picture</b> picks one from the PC or phone.</li>
@@ -1625,6 +1644,9 @@ function clBuild() {
       ta: $("[data-cl-reply]", row), saved: $(".cl-saved", row), ans: $(".cl-answer", row), aby: $("[data-cl-aby]", row), atext: $(".cl-atext", row),
       shots: $("[data-cl-shots]", row), shotKey: null };
   }
+  v.classList.toggle("cl-ro", !!d.archived);
+  if (d.archived) v.querySelectorAll("[data-cl-done], [data-cl-res], [data-cl-file]").forEach(x => { x.disabled = true; });
+  if (d.archived) v.querySelectorAll("[data-cl-reply]").forEach(x => { x.readOnly = true; x.placeholder = ""; });
   for (const it of clItems()) clPaint(it.id);
   clPaintSummary(); clPaintStatus(); micUi();
 }
@@ -1712,6 +1734,7 @@ function clPaintStatus() {
 }
 
 function clChange(id, ch, delay) {
+  if (cl.def?.archived) return;
   Object.assign(cl.st[id] ||= {}, ch);
   cl.pending[id] = { ...(cl.pending[id] || {}), ...ch };
   clPaint(id); clPaintSummary(); clPaintStatus();
@@ -1780,7 +1803,7 @@ async function clShotBlob(blob) {
 }
 async function clShotUpload(id, blob) {
   const list = cl.cur;
-  if (!list || !cl.els[id]) return;
+  if (!list || !cl.els[id] || cl.def?.archived) return;
   cl.shotBusy[id] = (cl.shotBusy[id] || 0) + 1; clPaintSaved(id);
   try {
     let pic;
@@ -1876,6 +1899,8 @@ clView.addEventListener("click", e => {
   if (row && t.closest("[data-cl-shot]")) { clShotPaste(row.dataset.item); return; }
   const un = t.closest("[data-cl-unshot]");
   if (row && un) { clShotRemove(row.dataset.item, un.dataset.clUnshot); return; }
+  const go = t.closest("[data-cl-goto]");
+  if (go) { e.preventDefault(); clOpen(go.dataset.clGoto); window.scrollTo({ top: 0 }); return; }
   const cp = t.closest("[data-cl-copy]");
   if (cp) { const it = clItems().find(i => i.id === cp.dataset.clCopy); if (it) clCopy(it.sample, cp); return; }
   const f = t.closest("[data-clf]");
