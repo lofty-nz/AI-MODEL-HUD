@@ -960,6 +960,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"checklists": [], "remote": CFG["docs_url"]})
             else:
                 self.send_json(checklists.list_all(CFG["docs_dir"]))
+        elif re.fullmatch(r"/api/checklists/[^/]+/shots/[^/]+", path) and CFG["docs_dir"]:
+            parts = path.split("/")   # "", api, checklists, <id>, shots, <name>
+            try:   # a screenshot pasted into a step's reply
+                self.send_file(checklists.shot_path(CFG["docs_dir"], parts[3], parts[5]))
+            except ValueError as e:
+                self.send_json({"error": str(e)}, 404)
         elif path.startswith("/api/checklists/") and CFG["docs_dir"]:
             try:
                 self.send_json(checklists.get(CFG["docs_dir"], path[len("/api/checklists/"):]))
@@ -984,6 +990,20 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path.startswith("/api/docs/"):
                 self.docs_post(self.path.split("?", 1)[0])
+                return
+            if self.path.split("?", 1)[0] == "/api/checklists/shot":   # the body is the picture itself, not JSON
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                n = int(self.headers.get("Content-Length") or 0)
+                if n > checklists.MAX_SHOT:
+                    raise ValueError("That picture is too big (15 MB at most)")
+                data = self.rfile.read(n)
+                item = checklists.add_shot(CFG["docs_dir"], (q.get("list") or [""])[0], (q.get("item") or [""])[0], data,
+                                           self.who({"by": (q.get("by") or [""])[0]}))
+                self.send_json({"ok": True, "item": item})
+                return
+            if self.path == "/api/checklists/shot/delete":
+                req = self.body()
+                self.send_json({"ok": True, "item": checklists.remove_shot(CFG["docs_dir"], req.get("list"), req.get("item"), req.get("name"))})
                 return
             if self.path == "/api/checklists/save":   # a tick, result or reply on the Checklists tab
                 req = self.body()

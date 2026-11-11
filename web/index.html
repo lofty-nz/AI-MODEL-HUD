@@ -375,6 +375,19 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
   border-radius: 10px; padding: 8px 10px; font: inherit; font-size: 16px; line-height: 1.4; }
 .cl-rbox .pill.mic:not(.rec):not(:disabled) { font-size: 17px; padding: 4px 11px; }
 .cl-saved { font-size: 11.5px; color: var(--muted); min-height: 1.2em; }
+.cl-shotbar { display: flex; flex-wrap: wrap; gap: 6px; }
+.cl-shotbar .pill { display: inline-flex; align-items: center; padding: 5px 11px; font-size: 12px; letter-spacing: 0; position: relative; }
+.cl-pick input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.cl-pick:focus-within { outline: 2px solid var(--link); outline-offset: 2px; }
+.cl-shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; }
+.cl-shots:empty { display: none; }
+.cl-shot { position: relative; margin: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel-2); aspect-ratio: 4 / 3; }
+.cl-shot a { display: block; width: 100%; height: 100%; }
+.cl-shot img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+.cl-shot button { position: absolute; top: 3px; right: 3px; width: 24px; height: 24px; border-radius: 50%; border: 0; padding: 0;
+  background: rgba(0, 0, 0, .62); color: #fff; font-size: 16px; line-height: 24px; cursor: pointer; }
+.cl-shot button:hover, .cl-shot button:focus-visible { background: var(--red); }
+.cl-item.cl-drop { outline: 2px dashed var(--link); outline-offset: 4px; border-radius: 6px; }
 .cl-saved.warn { color: var(--red); }
 .cl-answer { border: 1px solid color-mix(in srgb, var(--link) 50%, var(--line)); background: color-mix(in srgb, var(--link) 9%, var(--panel)); border-radius: 10px; padding: 8px 11px; }
 .cl-answer[hidden] { display: none; }
@@ -568,9 +581,10 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
         <ul>
           <li>The <b>Checklists</b> tab holds test runs and to-do lists, for example a run through every part of the TTR app after a big change. Each step says what to do and what should happen.</li>
           <li>Tick a step when it's done and mark it <b>✓ Works</b>, <b>✗ Problem</b> or <b>– Skipped</b>. The box beside it is your reply to Claude: what happened, what you'd change. <b>🎤</b> speaks it instead.</li>
+          <li>To show what you saw, take a screenshot and press <b>📋 Paste screenshot</b> on that step, or click in its reply box and press Ctrl+V. <b>📷 Add picture</b> picks a picture from the PC or the phone (on a phone, a screenshot from the gallery), and you can also drop a picture file onto a step. Each picture shows small under the box: click it to see it full size, <b>×</b> takes it off. Claude sees them when you say "read the checklist". The 📋 button needs the <b>https</b> address (or the browser asks first); Ctrl+V works on either.</li>
           <li>Everything saves by itself a moment after you stop typing (<b>Save</b> makes sure) and is kept on the server, so the PC and the phone see the same ticks and replies.</li>
           <li>When you're done, tell Claude “<b>read the checklist</b>”. It reads your replies, fixes things, and writes its answer under each step (in blue). The page picks answers up by itself every few seconds.</li>
-          <li>The files are in <code>~/Documents/ai-docs/checklists</code> on the server: <code>&lt;name&gt;.json</code> is the checklist and <code>&lt;name&gt;.state.json</code> is what was ticked and written.</li>
+          <li>The files are in <code>~/Documents/ai-docs/checklists</code> on the server: <code>&lt;name&gt;.json</code> is the checklist and <code>&lt;name&gt;.state.json</code> is what was ticked and written, and <code>shots/&lt;name&gt;/</code> holds the screenshots (removed ones go to <code>.removed</code> inside it).</li>
         </ul>
         <h3>Telegram</h3>
         <ul>
@@ -1450,7 +1464,7 @@ $("#tg-mic").addEventListener("click", e => { const b = e.target.closest("[data-
 const CL_RES = { pass: "Works", fail: "Problem", skip: "Skipped" };
 const CL_POLL_MS = 8000;
 const cl = { base: null, lists: null, cur: null, def: null, mod: 0, st: {}, els: {}, pending: {}, timers: {}, inflight: {},
-             errs: {}, filter: "all", poll: null, lastSaved: null, erred: false };
+             errs: {}, filter: "all", poll: null, lastSaved: null, erred: false, shotBusy: {} };
 const clMd = s => window.marked ? marked.parseInline(String(s ?? ""))
   : esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\*(.+?)\*/g, "<i>$1</i>");
 const clItems = () => cl.def ? cl.def.sections.flatMap(s => (s.items || []).map(i => ({ ...i, sec: s.id }))) : [];
@@ -1534,6 +1548,7 @@ async function clRefresh() {
     if (!("result" in p) && !busy) s.result = v.result || "";
     if (!("reply" in p) && !busy && document.activeElement?.id !== "cl-re-" + it.id) s.reply = v.reply || "";
     s.answer = v.answer || ""; s.answer_at = v.answer_at || 0; s.answer_by = v.answer_by || "";
+    if (!cl.shotBusy[it.id]) s.shots = v.shots || [];
     if (v.at && !busy && !cl.pending[it.id]) { s.at = v.at; s.by = v.by; }
     clPaint(it.id);
   }
@@ -1558,6 +1573,9 @@ function clItemHtml(it, places) {
     <div class="cl-reply">${seg}
       <div class="cl-rbox"><textarea id="cl-re-${esc(it.id)}" data-cl-reply rows="2" maxlength="10000"
         placeholder="${it.free ? "Anything for Claude…" : "Reply to Claude: what happened, what you’d change…"}" aria-label="Reply to Claude about: ${esc(it.title)}"></textarea>${micBtn("cl-re-" + esc(it.id))}</div>
+      <div class="cl-shotbar"><button type="button" class="pill plain" data-cl-shot title="Adds the screenshot you just took (it's on the clipboard). Ctrl+V in the reply box does the same">📋 Paste screenshot</button>
+        <label class="pill plain cl-pick" title="Pick a picture or screenshot from this PC or phone">📷 Add picture<input type="file" accept="image/*" multiple data-cl-file aria-label="Add a picture to: ${esc(it.title)}"></label></div>
+      <div class="cl-shots" data-cl-shots></div>
       <div class="cl-saved" aria-live="polite"></div>
       <div class="cl-answer" hidden><div class="section-label" data-cl-aby>Claude</div><div class="cl-atext"></div></div>
     </div></article>`;
@@ -1583,6 +1601,7 @@ function clBuild() {
       <ol class="cl-how">
         <li>Do the steps in order. Tick each one when it's done and pick <b>✓ Works</b>, <b>✗ Problem</b> or <b>– Skipped</b>.</li>
         <li>Write to Claude in the box beside any step (or press <b>🎤</b> and say it): what happened, what you'd change. It saves by itself; <b>Save</b> makes sure.</li>
+        <li>To show Claude something, take a screenshot and press <b>📋 Paste screenshot</b> on that step (or Ctrl+V in its box). <b>📷 Add picture</b> picks one from the PC or phone.</li>
         <li>When you're done, tell Claude “<b>read the checklist</b>”. Its answers show up under each step, in blue.</li>
       </ol>
       ${placeCards ? `<div class="cl-places">${placeCards}</div>` : ""}
@@ -1603,7 +1622,8 @@ function clBuild() {
   cl.els = {};
   for (const row of v.querySelectorAll(".cl-item")) {
     cl.els[row.dataset.item] = { row, cb: $("[data-cl-done]", row), st: $("[data-cl-st]", row), btns: [...row.querySelectorAll("[data-cl-res]")],
-      ta: $("[data-cl-reply]", row), saved: $(".cl-saved", row), ans: $(".cl-answer", row), aby: $("[data-cl-aby]", row), atext: $(".cl-atext", row) };
+      ta: $("[data-cl-reply]", row), saved: $(".cl-saved", row), ans: $(".cl-answer", row), aby: $("[data-cl-aby]", row), atext: $(".cl-atext", row),
+      shots: $("[data-cl-shots]", row), shotKey: null };
   }
   for (const it of clItems()) clPaint(it.id);
   clPaintSummary(); clPaintStatus(); micUi();
@@ -1621,15 +1641,30 @@ function clPaint(id) {
   if (s.result) { e.st.className = "badge " + (s.result === "pass" ? "on" : s.result === "fail" ? "bad" : "off"); e.st.textContent = CL_RES[s.result].toUpperCase(); }
   const typing = document.activeElement === e.ta || (cl.pending[id] && "reply" in cl.pending[id]);
   if (!typing && e.ta.value !== (s.reply || "")) { e.ta.value = s.reply || ""; clAutosize(e.ta); }
+  clPaintShots(id);
   e.ans.hidden = !s.answer;
   if (s.answer) { e.aby.textContent = (s.answer_by || "Claude") + (s.answer_at ? " · " + fmtWhen(s.answer_at) : ""); e.atext.textContent = s.answer; }
   clPaintSaved(id);
+}
+const clShotUrl = name => cl.base + "api/checklists/" + encodeURIComponent(cl.cur) + "/shots/" + encodeURIComponent(name);
+function clPaintShots(id) {
+  const e = cl.els[id], shots = ((cl.st[id] || {}).shots || []).filter(x => x && x.f);
+  if (!e) return;
+  const key = shots.map(x => x.f).join("|");
+  if (key === e.shotKey) return;   // unchanged: leave the pictures alone (no flicker on every refresh)
+  e.shotKey = key;
+  const title = e.row.getAttribute("aria-label") || id;
+  e.shots.innerHTML = shots.map((x, i) => `<figure class="cl-shot">
+      <a href="${esc(clShotUrl(x.f))}" target="_blank" rel="noopener" title="Open full size${x.by ? " · added by " + esc(x.by) : ""}${x.at ? " · " + esc(fmtWhen(x.at)) : ""}">
+        <img src="${esc(clShotUrl(x.f))}" alt="Screenshot ${i + 1} for ${esc(title)}" loading="lazy"></a>
+      <button type="button" data-cl-unshot="${esc(x.f)}" title="Remove this screenshot" aria-label="Remove screenshot ${i + 1}">×</button></figure>`).join("");
 }
 function clPaintSaved(id) {
   const e = cl.els[id], s = cl.st[id] || {};
   if (!e) return;
   let t = "", warn = false;
-  if (cl.inflight[id]) t = "Saving…";
+  if (cl.shotBusy[id]) t = "Adding the screenshot…";
+  else if (cl.inflight[id]) t = "Saving…";
   else if (cl.errs[id]) { t = "Not saved yet: " + cl.errs[id].message + " · trying again"; warn = true; }
   else if (cl.pending[id]) t = "…";
   else if (s.at) t = "Saved " + clTime(s.at) + (s.by ? " · " + s.by : "");
@@ -1638,7 +1673,7 @@ function clPaintSaved(id) {
 function clVisible(id) {
   const s = cl.st[id] || {};
   return cl.filter === "todo" ? !s.done : cl.filter === "fail" ? s.result === "fail"
-    : cl.filter === "reply" ? !!(s.reply || "").trim() : cl.filter === "ans" ? !!s.answer : true;
+    : cl.filter === "reply" ? !!(s.reply || "").trim() || !!(s.shots || []).length : cl.filter === "ans" ? !!s.answer : true;
 }
 function clPaintSummary() {
   if (!cl.def || !$("#cl-tally")) return;
@@ -1646,7 +1681,7 @@ function clPaintSummary() {
   const done = core.filter(i => st(i.id).done).length;
   const mins = core.filter(i => !st(i.id).done).reduce((a, i) => a + (+i.min || 0), 0);
   const n = { todo: all.filter(i => !st(i.id).done).length, fail: all.filter(i => st(i.id).result === "fail").length,
-              reply: all.filter(i => (st(i.id).reply || "").trim()).length, ans: all.filter(i => st(i.id).answer).length };
+              reply: all.filter(i => (st(i.id).reply || "").trim() || (st(i.id).shots || []).length).length, ans: all.filter(i => st(i.id).answer).length };
   $("#cl-tally").innerHTML = `<b>${done}</b> of ${core.length} done${n.fail ? ` · <span class="bad">${n.fail} ${n.fail === 1 ? "problem" : "problems"}</span>` : ""}`
     + (done === core.length ? " · all done" : mins ? ` · about ${Math.ceil(mins)} min left` : "");
   $("#cl-meter").style.width = (core.length ? 100 * done / core.length : 0) + "%";
@@ -1717,6 +1752,7 @@ function clText() {
       const st = cl.st[it.id] || {}, r = st.result ? CL_RES[st.result].toUpperCase() : st.done ? "Done" : "Not done";
       out.push(`  [${st.done ? "x" : " "}] ${it.id}  ${it.title}  —  ${r}`);
       if ((st.reply || "").trim()) out.push("        Reply: " + st.reply.trim().replace(/\n/g, "\n        "));
+      for (const x of st.shots || []) out.push("        Screenshot: " + new URL(clShotUrl(x.f), location.href).href);
     }
     out.push("");
   });
@@ -1729,10 +1765,95 @@ function clCopy(text, btn) {
   try { navigator.clipboard.writeText(text).then(ok, fail); } catch (e) { fail(); }
 }
 
+/* Screenshots on a step: 📋 Paste screenshot (the clipboard), Ctrl+V in the reply box, 📷 Add picture, or drop a file
+   on the step. The picture itself is the body of the POST; the server checks it really is a PNG/JPEG/WebP/GIF. */
+const CL_SHOT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+async function clShotBlob(blob) {
+  // Other kinds (HEIC from a phone, BMP…) and very big pictures are redrawn as PNG/JPEG first, if the browser can read them.
+  if (CL_SHOT_TYPES.includes(blob.type) && blob.size <= 12 * 1024 * 1024) return blob;
+  const bmp = await createImageBitmap(blob);
+  const c = document.createElement("canvas");
+  c.width = bmp.width; c.height = bmp.height;
+  c.getContext("2d").drawImage(bmp, 0, 0);
+  const asJpeg = blob.size > 12 * 1024 * 1024;
+  return await new Promise((ok, bad) => c.toBlob(b => b ? ok(b) : bad(new Error("couldn't redraw it")), asJpeg ? "image/jpeg" : "image/png", .88));
+}
+async function clShotUpload(id, blob) {
+  const list = cl.cur;
+  if (!list || !cl.els[id]) return;
+  cl.shotBusy[id] = (cl.shotBusy[id] || 0) + 1; clPaintSaved(id);
+  try {
+    let pic;
+    try { pic = await clShotBlob(blob); } catch (e) { throw new Error("that isn't a picture this browser can read (use PNG or JPEG)"); }
+    const r = await fetch(cl.base + "api/checklists/shot?" + new URLSearchParams({ list, item: id, by: opts.name || "" }),
+      { method: "POST", body: pic, headers: { "Content-Type": pic.type || "application/octet-stream" } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) throw new Error(j.error || r.statusText);
+    if (list === cl.cur && cl.st[id]) {
+      cl.st[id].shots = j.item.shots || []; cl.st[id].at = j.item.at; cl.st[id].by = j.item.by;
+      cl.lastSaved = new Date();
+    }
+    toast("Screenshot added");
+  } catch (e) {
+    toast("Screenshot not added: " + e.message, true);
+  } finally {
+    cl.shotBusy[id]--; if (!cl.shotBusy[id]) delete cl.shotBusy[id];
+    if (list === cl.cur) { clPaint(id); clPaintSummary(); clPaintStatus(); }
+  }
+}
+function clShotFiles(id, files) {
+  const pics = [...files].filter(f => f.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|heic|heif|bmp)$/i.test(f.name || ""));
+  if (!pics.length) { toast("Only pictures can be added to a step", true); return; }
+  pics.reduce((p, f) => p.then(() => clShotUpload(id, f)), Promise.resolve());   // one at a time, in order
+}
+async function clShotPaste(id) {
+  const ta = cl.els[id]?.ta;
+  const byHand = why => { ta?.focus(); toast(why + "Click in the reply box and press Ctrl+V to paste it.", !!why); };
+  if (!navigator.clipboard?.read) return byHand(location.protocol === "http:" ? "This button needs the https address of the hub. " : "");
+  let items;
+  try { items = await navigator.clipboard.read(); } catch (e) { return byHand("The browser wouldn't hand over the clipboard. "); }
+  const blobs = [];
+  for (const ci of items) { const t = ci.types.find(x => x.startsWith("image/")); if (t) blobs.push(await ci.getType(t)); }
+  if (!blobs.length) { toast("There's no picture on the clipboard. Take the screenshot first (it copies it), then press 📋 again", true); return; }
+  for (const b of blobs) await clShotUpload(id, b);
+}
+async function clShotRemove(id, name) {
+  if (!confirm("Remove this screenshot from the step?")) return;
+  try {
+    const j = await post(cl.base + "api/checklists/shot/delete", { list: cl.cur, item: id, name });
+    if (cl.st[id]) cl.st[id].shots = j.item.shots || [];
+    toast("Screenshot removed");
+  } catch (e) { toast("Not removed: " + e.message, true); }
+  clPaint(id); clPaintSummary();
+}
+
 const clView = $("#cl-view");
+clView.addEventListener("paste", e => {   // Ctrl+V anywhere on a step: a picture goes in as a screenshot, text pastes as usual
+  const row = e.target.closest(".cl-item");
+  const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith("image/"));
+  if (!row || !files.length) return;
+  if (e.target.matches("textarea") && (e.clipboardData.getData("text/plain") || "").trim()) return;   // copied text (a spreadsheet cell comes with a picture of itself)
+  e.preventDefault();
+  clShotFiles(row.dataset.item, files);
+});
+clView.addEventListener("dragover", e => {
+  const row = e.target.closest(".cl-item");
+  if (!row || ![...(e.dataTransfer?.types || [])].includes("Files")) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = "copy";
+  clView.querySelectorAll(".cl-drop").forEach(r => r !== row && r.classList.remove("cl-drop"));
+  row.classList.add("cl-drop");
+});
+clView.addEventListener("dragleave", e => { const row = e.target.closest(".cl-item"); if (row && !row.contains(e.relatedTarget)) row.classList.remove("cl-drop"); });
+clView.addEventListener("drop", e => {
+  const row = e.target.closest(".cl-item");
+  if (!row || !e.dataTransfer?.files?.length) return;
+  e.preventDefault(); row.classList.remove("cl-drop");
+  clShotFiles(row.dataset.item, e.dataTransfer.files);
+});
 clView.addEventListener("change", e => {
   const row = e.target.closest(".cl-item");
   if (row && e.target.matches("[data-cl-done]")) clChange(row.dataset.item, { done: e.target.checked }, 250);
+  if (row && e.target.matches("[data-cl-file]")) { if (e.target.files.length) clShotFiles(row.dataset.item, e.target.files); e.target.value = ""; }
 });
 clView.addEventListener("input", e => {
   const row = e.target.closest(".cl-item");
@@ -1752,6 +1873,9 @@ clView.addEventListener("click", e => {
   }
   const m = t.closest("[data-mic]");
   if (m && !m.disabled) { micToggle(m.dataset.mic, cl.base); return; }
+  if (row && t.closest("[data-cl-shot]")) { clShotPaste(row.dataset.item); return; }
+  const un = t.closest("[data-cl-unshot]");
+  if (row && un) { clShotRemove(row.dataset.item, un.dataset.clUnshot); return; }
   const cp = t.closest("[data-cl-copy]");
   if (cp) { const it = clItems().find(i => i.id === cp.dataset.clCopy); if (it) clCopy(it.sample, cp); return; }
   const f = t.closest("[data-clf]");

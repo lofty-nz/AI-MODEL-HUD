@@ -15,11 +15,15 @@ Files live in the docs folder, in a "checklists" folder of their own:
                                 "do": ["Markdown", ...], "expect": ["Markdown", ...], "sample": "text to copy"}]}]}
   <id>.state.json  what people ticked and wrote, per step:
       {"items": {"<item id>": {"done", "result": "pass|fail|skip|", "reply", "at", "by",
+                                "shots": [{"f": "<file name>", "at", "by"}],
                                 "answer", "answer_at", "answer_by"}}}
+  shots/<id>/      screenshots pasted into a step's reply (PNG, JPEG, WebP or GIF); removed ones move to
+                   shots/<id>/.removed/ rather than being deleted
 
 Command line (on the PC that has the docs folder):
   python3 checklists.py                                  list the checklists
-  python3 checklists.py show <id> [--all]                steps that need a look (problems, replies), or all of them
+  python3 checklists.py show <id> [--all]                steps that need a look (problems, replies, screenshots),
+                                                         or all of them; screenshots are listed by full path
   python3 checklists.py answer <id> <item> "text" [--by NAME]   write the answer shown under a step ("" removes it)
 """
 import fcntl
@@ -36,6 +40,10 @@ ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
 RESULTS = ("pass", "fail", "skip", "")
 MAX_TEXT = 10000
 MAX_LIST = 1024 * 1024
+MAX_SHOT = 15 * 1024 * 1024    # one screenshot (a full two-screen PNG is a few MB)
+MAX_SHOTS = 20                 # per step
+SHOT_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
+SHOT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}\.(png|jpg|webp|gif)")
 
 
 def _dir(docs_dir):
@@ -120,7 +128,8 @@ def counts(data, state):
     return {"total": len(core),
             "done": sum(1 for i in core if st.get(i["id"], {}).get("done")),
             "problems": sum(1 for i in every if st.get(i["id"], {}).get("result") == "fail"),
-            "replies": sum(1 for i in every if str(st.get(i["id"], {}).get("reply") or "").strip()),
+            "replies": sum(1 for i in every if str(st.get(i["id"], {}).get("reply") or "").strip()
+                           or st.get(i["id"], {}).get("shots")),
             "answers": sum(1 for i in every if st.get(i["id"], {}).get("answer")),
             "minutes_left": sum(float(i.get("min") or 0) for i in core if not st.get(i["id"], {}).get("done"))}
 
@@ -193,6 +202,98 @@ def save(docs_dir, req, by):
     return entry
 
 
+def _shot_type(data):
+    """What the bytes really are (the browser's label isn't trusted)."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    return None
+
+
+def shot_dir(docs_dir, cid):
+    return os.path.join(_dir(docs_dir), "shots", _check_id(cid))
+
+
+def shot_path(docs_dir, cid, name):
+    """The file for a screenshot's name, or ValueError (names never hold a path)."""
+    if not SHOT_RE.fullmatch(str(name or "")):
+        raise ValueError("No such screenshot")
+    return os.path.join(shot_dir(docs_dir, cid), name)
+
+
+def add_shot(docs_dir, cid, item, data, by):
+    """A screenshot pasted or picked for a step: saved next to the checklist and listed on the step."""
+    cid = _check_id(cid)
+    data_, _ = load_list(docs_dir, cid)
+    item = str(item or "")
+    if item not in _item_ids(data_):
+        raise ValueError("That step isn't in the checklist any more; reload the page")
+    if not data:
+        raise ValueError("That picture was empty")
+    if len(data) > MAX_SHOT:
+        raise ValueError("That picture is too big (15 MB at most)")
+    kind = _shot_type(data)
+    if not kind:
+        raise ValueError("Only pictures can be added: PNG, JPEG, WebP or GIF")
+    folder = _dir(docs_dir)
+    with _locked(folder):
+        state = read_state(docs_dir, cid)
+        entry = state["items"].setdefault(item, {})
+        shots = [x for x in entry.get("shots") or [] if isinstance(x, dict) and x.get("f")]
+        if len(shots) >= MAX_SHOTS:
+            raise ValueError("A step can have %d screenshots at most; remove one first" % MAX_SHOTS)
+        now = time.time()
+        stem = "%s-%s-%03d" % (re.sub(r"[^A-Za-z0-9_-]", "_", item)[:40].lstrip("_-") or "step", time.strftime("%Y%m%d-%H%M%S", time.localtime(now)),
+                               int(now * 1000) % 1000)
+        name = stem + "." + SHOT_TYPES[kind]
+        n = 2
+        while os.path.exists(shot_path(docs_dir, cid, name)):
+            name = "%s-%d.%s" % (stem, n, SHOT_TYPES[kind])
+            n += 1
+        os.makedirs(shot_dir(docs_dir, cid), exist_ok=True)
+        path = shot_path(docs_dir, cid, name)
+        tmp = os.path.join(os.path.dirname(path), "." + name + ".tmp")
+        with open(tmp, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+        shots.append({"f": name, "at": round(now), "by": by})
+        entry["shots"] = shots
+        entry["at"] = round(now)
+        entry["by"] = by
+        _write_json(os.path.join(folder, cid + ".state.json"), state)
+    return entry
+
+
+def remove_shot(docs_dir, cid, item, name):
+    """× on a screenshot: off the step, and the file moves to shots/<id>/.removed/ (kept, not deleted)."""
+    cid = _check_id(cid)
+    path = shot_path(docs_dir, cid, name)
+    item = str(item or "")
+    folder = _dir(docs_dir)
+    with _locked(folder):
+        state = read_state(docs_dir, cid)
+        entry = state["items"].get(item)
+        shots = (entry or {}).get("shots") or []
+        if not any(isinstance(x, dict) and x.get("f") == name for x in shots):
+            raise ValueError("That screenshot is already gone")
+        entry["shots"] = [x for x in shots if not (isinstance(x, dict) and x.get("f") == name)]
+        if not entry["shots"]:
+            del entry["shots"]
+        _write_json(os.path.join(folder, cid + ".state.json"), state)
+        if os.path.exists(path):
+            gone = os.path.join(os.path.dirname(path), ".removed")
+            os.makedirs(gone, exist_ok=True)
+            os.replace(path, os.path.join(gone, name))
+    return entry
+
+
 def answer(docs_dir, cid, item, text, by="Claude"):
     """The answer shown under a step (Claude's reply to what was written there). Empty text removes it."""
     cid = _check_id(cid)
@@ -251,7 +352,8 @@ def _main(argv):
         for it in items(g["list"]):
             s = st.get(it["id"], {})
             reply = str(s.get("reply") or "").strip()
-            needs = s.get("result") == "fail" or (reply and (s.get("answer_at") or 0) < (s.get("at") or 0))
+            shots = [x for x in s.get("shots") or [] if isinstance(x, dict) and x.get("f")]
+            needs = s.get("result") == "fail" or ((reply or shots) and (s.get("answer_at") or 0) < (s.get("at") or 0))
             if not show_all and not needs:
                 continue
             res = {"pass": "WORKS", "fail": "PROBLEM", "skip": "skipped"}.get(s.get("result"), "done" if s.get("done") else "-")
@@ -259,6 +361,9 @@ def _main(argv):
                                                 ("(%s, %s)" % (s.get("by") or "?", _when(s.get("at")))) if s.get("at") else ""))
             if reply:
                 print("      reply:  " + reply.replace("\n", "\n              "))
+            for x in shots:
+                print("      screenshot: %s  (%s, %s)" % (os.path.join(shot_dir(docs_dir, rest[0]), x["f"]),
+                                                       x.get("by") or "?", _when(x.get("at"))))
             if s.get("answer"):
                 print("      answer: " + str(s["answer"]).replace("\n", "\n              ") + "  (%s)" % _when(s.get("answer_at")))
         return 0
