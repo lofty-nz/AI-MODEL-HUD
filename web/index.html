@@ -1536,11 +1536,12 @@ async function clOpen(id) {
   await clFlushAll();
   try {
     const j = await clFetch(id);
-    cl.cur = id; cl.def = j.list; cl.mod = j.modified; cl.st = {}; cl.errs = {}; cl.filter = "all";
+    cl.cur = id; cl.def = j.list; cl.mod = j.modified; cl.st = {}; cl.errs = {}; cl.filter = (opts.clFilter || {})[id] || "all";
     for (const it of clItems()) cl.st[it.id] = { ...(j.state.items[it.id] || {}) };
     opts.checklist = id; saveOpts();
     history.replaceState(null, "", "#checklist=" + encodeURIComponent(id));
     clBuild(); clRenderList();
+    clJumpFirst();
   } catch (e) { $("#cl-view").innerHTML = `<div class="err">Couldn't open that checklist: ${esc(e.message)}</div>`; }
 }
 async function clRefresh() {
@@ -1622,6 +1623,7 @@ function clBuild() {
         <li>Write to Claude in the box beside any step (or press <b>🎤</b> and say it): what happened, what you'd change. It saves by itself; <b>Save</b> makes sure.</li>
         <li>To show Claude something, take a screenshot and press <b>📋 Paste screenshot</b> on that step (or Ctrl+V in its box). <b>📷 Add picture</b> picks one from the PC or phone.</li>
         <li>When you're done, tell Claude “<b>read the checklist</b>”. Its answers show up under each step, in blue.</li>
+        <li>Reopening the page takes you to the first step that isn't ticked. <b>To do</b> hides the ticked ones (it stays on until you pick <b>All</b>).</li>
       </ol>
       ${placeCards ? `<div class="cl-places">${placeCards}</div>` : ""}
       <div class="cl-filters" role="group" aria-label="Show">
@@ -1651,6 +1653,13 @@ function clBuild() {
   clPaintSummary(); clPaintStatus(); micUi();
 }
 
+// Opening (or reloading) a checklist lands on the first step that isn't ticked, so you don't scroll past the done ones.
+function clJumpFirst() {
+  if (cl.def?.archived) return;
+  const core = clCore(), next = core.find(i => !(cl.st[i.id] || {}).done && cl.els[i.id] && !cl.els[i.id].row.hidden);
+  if (!next || next.id === core[0]?.id) return;
+  requestAnimationFrame(() => cl.els[next.id]?.row.scrollIntoView({ behavior: "auto", block: "start" }));
+}
 function clAutosize(ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight + 2, 340) + "px"; }
 function clPaint(id) {
   const s = cl.st[id] || {}, e = cl.els[id];
@@ -1904,7 +1913,11 @@ clView.addEventListener("click", e => {
   const cp = t.closest("[data-cl-copy]");
   if (cp) { const it = clItems().find(i => i.id === cp.dataset.clCopy); if (it) clCopy(it.sample, cp); return; }
   const f = t.closest("[data-clf]");
-  if (f) { cl.filter = f.dataset.clf; clView.querySelectorAll("[data-clf]").forEach(b => b.setAttribute("aria-pressed", String(b === f))); clPaintSummary(); return; }
+  if (f) {
+    cl.filter = f.dataset.clf; clView.querySelectorAll("[data-clf]").forEach(b => b.setAttribute("aria-pressed", String(b === f))); clPaintSummary();
+    opts.clFilter = { ...(opts.clFilter || {}), [cl.cur]: cl.filter }; saveOpts();   // remembered per checklist, so a reload keeps "To do"
+    return;
+  }
   const a = t.closest("[data-cl]")?.dataset.cl;
   if (a === "save") { const b = t.closest("[data-cl]"); b.textContent = "Saving…"; clFlushAll().then(() => { b.textContent = "Save"; clPaintStatus(); }); }
   else if (a === "copy") clCopy(clText(), t.closest("[data-cl]"));
