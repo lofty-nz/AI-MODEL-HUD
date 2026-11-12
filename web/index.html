@@ -443,6 +443,52 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
   border-radius: 12px; padding: 10px 16px; box-shadow: 0 8px 30px rgba(0,0,0,.35); font-weight: 600; z-index: 20; max-width: calc(100vw - 32px); }
 .toast.bad { border-color: var(--red); color: var(--red); }
 
+/* Projects: one card per little project; ▶ Open goes straight there or asks where */
+.pj-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 16px; }
+.pj-bar input[type=search] { flex: 1 1 220px; max-width: 360px; background: var(--panel); color: var(--text); border: 1px solid var(--line);
+  border-radius: 999px; padding: 7px 14px; font: inherit; }
+.pj-check { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.pj-bar .spacer { flex: 1; }
+.pj-bar .pill, .pj-btns .pill, .pj-dlg .pill { font-size: 12px; padding: 6px 14px; }
+.pj-group { margin: 0 0 22px; }
+.pj-group > h2 { margin: 0 0 8px 2px; }
+.pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.pj { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column;
+  gap: 6px; min-width: 0; box-shadow: var(--shadow); }
+.pj.hid { opacity: .55; }
+.pj-top { display: flex; align-items: flex-start; gap: 10px; }
+.pj-icon { font-size: 22px; line-height: 1.1; width: 30px; text-align: center; flex: none; }
+.pj-head { min-width: 0; flex: 1; }
+.pj-name { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; }
+.pj-about { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+.pj-where { color: var(--faint); font-size: 12px; overflow-wrap: anywhere; }
+.pj-note { color: var(--amber); font-size: 12px; }
+.pj-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: auto; padding-top: 6px; }
+.pj-btns .pj-gh { margin-left: auto; font-size: 12px; }
+.pj-remember { font-size: 12px; color: var(--muted); }
+.pj-remember button { background: none; border: 0; color: var(--link); cursor: pointer; padding: 0; font-size: 12px; }
+.pj-dlg { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 16px; padding: 0;
+  width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 48px); box-shadow: 0 20px 60px rgba(0, 0, 0, .45); }
+.pj-dlg::backdrop { background: rgba(0, 0, 0, .5); }
+.pj-in { padding: 18px; display: grid; gap: 10px; }
+.pj-dlg h2 { margin: 0 0 4px; font-size: 17px; }
+.pj-opts { display: grid; gap: 6px; }
+.pj-opt { display: grid; grid-template-columns: 26px minmax(0, 1fr); align-items: center; gap: 1px 8px; text-align: left; width: 100%;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; cursor: pointer; color: var(--text); }
+.pj-opt:hover, .pj-opt:focus-visible { border-color: var(--link); outline: none; }
+.pj-opt[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+.pj-opt .i { grid-row: span 2; font-size: 17px; text-align: center; }
+.pj-opt b { font-weight: 600; }
+.pj-opt small { color: var(--muted); overflow-wrap: anywhere; font-size: 12px; }
+.pj-end { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 4px; }
+.pj-end .spacer { flex: 1; }
+.pj-f { display: grid; gap: 4px; font-size: 13px; font-weight: 600; min-width: 0; }
+.pj-f input, .pj-f textarea { width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+  padding: 7px 9px; font: inherit; font-weight: 400; }
+.pj-f textarea { resize: vertical; }
+.pj-two { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px; }
+.pj-hint { color: var(--muted); font-size: 12px; font-weight: 400; margin: 0; }
+
 @media (max-width: 760px) {
   .bar { flex-wrap: wrap; gap: 8px 12px; }
   nav { order: 3; width: 100%; overflow-x: auto; }
@@ -465,6 +511,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
     <div class="brand">AI HUB</div>
     <nav role="tablist">
       <button role="tab" data-view="overview" aria-selected="true">Overview</button>
+      <button role="tab" data-view="projects">Projects</button>
       <button role="tab" data-view="docs">Docs</button>
       <button role="tab" data-view="checks">Checklists</button>
       <button role="tab" data-view="telegram">Telegram</button>
@@ -481,6 +528,16 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
   <section class="view" id="view-overview">
     <div class="links" id="links"></div>
     <div class="machines" id="machines"></div>
+  </section>
+
+  <section class="view" id="view-projects" hidden>
+    <div class="pj-bar">
+      <input type="search" id="pj-search" placeholder="Search projects" aria-label="Search projects">
+      <label class="pj-check"><input type="checkbox" id="pj-hidden"> Show hidden</label>
+      <span class="spacer"></span>
+      <button class="pill start" id="pj-add">＋ Add project</button>
+    </div>
+    <div id="pj-list"><p class="hint-muted">Loading…</p></div>
   </section>
 
   <section class="view" id="view-docs" hidden>
@@ -596,6 +653,15 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
           <li>When you're done, tell Claude “<b>read the checklist</b>”. It reads your replies, fixes things, and writes its answer under each step (in blue). The page picks answers up by itself every few seconds.</li>
           <li>The files are in <code>~/Documents/ai-docs/checklists</code> on the server: <code>&lt;name&gt;.json</code> is the checklist and <code>&lt;name&gt;.state.json</code> is what was ticked and written, and <code>shots/&lt;name&gt;/</code> holds the screenshots (removed ones go to <code>.removed</code> inside it).</li>
         </ul>
+        <h3>Projects</h3>
+        <ul>
+          <li>The <b>Projects</b> tab has a card for each little project (games, tools, TTR, the PC apps, older ones), grouped, with a search box.</li>
+          <li><b>▶ Open</b> goes straight there when there's only one place to open it. When there are several (the live website, the TTR app, the working copy on the main PC…) it asks where. <b>Where…</b> always asks.</li>
+          <li>The places: <b>In this browser</b> (a web address, or a project's folder on a PC, shared by that PC's hub on port 8091, home network only); <b>On a PC's screen</b> (starts a program on that PC, e.g. mTasks or the Camera, even when you're on the phone); <b>Work on it</b> (opens the project's folder in VS Code or Files on the PC that has it, or its GitHub page).</li>
+          <li>Tick <b>Remember my choice</b> and ▶ Open goes there from then on (this browser only); <b>ask every time</b> under the button undoes it.</li>
+          <li><b>✎</b> changes a project's name, icon, what it is, group, web links and GitHub link, or hides it. <b>＋ Add project</b> adds one with web links. Programs, shared folders and project folders are set in each PC's hub settings, so ask Claude for those.</li>
+          <li>The list is <code>~/Documents/ai-docs/projects.json</code> on the server, so both PCs and the phone see the same one.</li>
+        </ul>
         <h3>Telegram</h3>
         <ul>
           <li>The <b>Telegram</b> tab links a Telegram bot to your phone. Apps use it to message you: the <b>TTR app</b> sends each new lead and each customer reply, with an <b>Open in TTR</b> button that opens that lead's reply window (switch it in TTR → ⚙ Settings → 📧 Email → AI replies).</li>
@@ -610,6 +676,8 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
     </div>
   </section>
 </main>
+<dialog class="pj-dlg" id="pj-where" aria-labelledby="pj-where-h"></dialog>
+<dialog class="pj-dlg" id="pj-edit" aria-labelledby="pj-edit-h"></dialog>
 
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script>
@@ -635,6 +703,7 @@ function showView(name) {
   document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === name));
   document.querySelectorAll(".view").forEach(v => v.hidden = v.id !== "view-" + name);
   if (name === "docs") loadDocs();
+  if (name === "projects") pjLoad();
   if (name === "telegram") tgLoad(); else clearTimeout(tgTimer);
   if (name === "checks") clLoad(); else clStop();
 }
@@ -836,6 +905,7 @@ function render() {
   if (!state) return;
   renderPcSettings();
   renderLinks(state.links || []);
+  pjStateChanged();
   $("#machines").innerHTML = state.machines.map(renderMachine).join("");
   const all = state.machines.flatMap(m => (m.problems || []).map(p => ({ ...p, machine: m.name })));
   const a = $("#alert");
@@ -1933,6 +2003,213 @@ window.addEventListener("beforeunload", e => {
   if (Object.keys(cl.pending).length || Object.values(cl.inflight).some(Boolean)) { clFlushAll(); e.preventDefault(); e.returnValue = ""; }
 });
 
+/* ---------- projects ---------- */
+// The list lives on the server's hub (like the checklists). Each project has places to open it: web links,
+// a folder shared by a PC's hub on its files port, programs a PC may start, and folders for VS Code / Files.
+const pj = { base: null, data: null, loading: false, sig: "" };
+const pjHome = path => String(path || "").replace(/^\/home\/[^/]+/, "~");
+const pjMachine = name => (state?.machines || []).find(m => m.name === name);
+const pjFind = id => (pj.data?.projects || []).find(p => p.id === id);
+function pjOff(m, pc) {
+  if (!state) return "Still checking the PCs…";
+  if (!m) return `${pc} isn't one of this hub's PCs`;
+  if (!m.online) return `${pc} is off or not answering`;
+  return "";
+}
+async function pjLoad() {
+  if (pj.loading) return;
+  pj.loading = true;
+  try {
+    let j = await (await fetch((pj.base ?? "") + "api/projects", { cache: "no-store" })).json();
+    if (j.remote && pj.base === null) {   // this hub has no docs folder; the server's hub keeps the list
+      pj.base = j.remote.replace(/\/$/, "") + "/";
+      j = await (await fetch(pj.base + "api/projects", { cache: "no-store" })).json();
+    }
+    if (j.error) throw new Error(j.error);
+    if (pj.base === null) pj.base = "";
+    pj.data = j;
+    pjRender();
+  } catch (err) {
+    $("#pj-list").innerHTML = `<p class="hint-muted">Can't load the projects: ${esc(err.message)}</p>`;
+  } finally { pj.loading = false; }
+}
+/* Everywhere a project can open, in the order the chooser shows them. */
+function pjOptions(p) {
+  const out = [];
+  for (const pl of p.places || []) {
+    if (pl.kind === "web") {
+      out.push({ key: "web:" + pl.url, sec: "browser", icon: "🌐", label: pl.label, detail: pl.url.replace(/^https?:\/\//, "").replace(/\/$/, ""), href: pl.url });
+    } else if (pl.kind === "files") {
+      const m = pjMachine(pl.pc), info = m?.projects || {};
+      const shared = info.files_url && (info.serve || []).includes(pl.serve);
+      const off = pjOff(m, pl.pc) || (shared ? "" : `${pl.pc}'s hub isn't sharing this folder`);
+      out.push({ key: `files:${pl.pc}:${pl.serve}/${pl.open || ""}`, sec: "browser", icon: "🖥", label: pl.label,
+        detail: `On the ${pl.pc} (home network) · ${pl.open || pl.serve}`, off,
+        href: off ? null : `${info.files_url}/${encodeURIComponent(pl.serve)}/${pl.open || ""}` });
+    } else if (pl.kind === "run") {
+      const m = pjMachine(pl.pc);
+      const off = pjOff(m, pl.pc) || (m.projects?.launchers?.[pl.run] ? "" : `${pl.pc}'s hub doesn't have this program set up`);
+      out.push({ key: `run:${pl.pc}:${pl.run}`, sec: "screen", icon: "▶", label: pl.label, detail: `Opens on the ${pl.pc}'s screen`, off,
+        launch: { machine: pl.pc, run: pl.run } });
+    }
+  }
+  for (const f of p.folders || []) {
+    const off = pjOff(pjMachine(f.pc), f.pc);
+    out.push({ key: `code:${f.pc}:${f.path}`, sec: "work", icon: "⌨", label: `VS Code on the ${f.pc}`, detail: pjHome(f.path), off,
+      launch: { machine: f.pc, folder: f.path, app: "code" } });
+    out.push({ key: `folder:${f.pc}:${f.path}`, sec: "work", icon: "📂", label: `Files on the ${f.pc}`, detail: pjHome(f.path), off,
+      launch: { machine: f.pc, folder: f.path, app: "files" } });
+  }
+  if (p.github) out.push({ key: "github", sec: "work", icon: "🐙", label: "GitHub page", detail: p.github.replace(/^https:\/\//, ""), href: p.github });
+  return out;
+}
+/* What ▶ Open does without asking: the remembered choice, or the only place there is. */
+function pjPrimary(p, all = pjOptions(p)) {
+  const key = (opts.pjChoice || {})[p.id];
+  const kept = key && all.find(o => o.key === key);
+  if (kept) return { o: kept, kept: true };
+  const main = all.filter(o => o.sec !== "work");
+  return main.length === 1 ? { o: main[0], kept: false } : null;
+}
+async function pjGo(o, btn) {
+  if (o.off) { toast(o.off, true); return; }
+  if (o.href) { window.open(o.href, "_blank", "noopener"); return; }   // straight from the click, so it isn't blocked
+  if (btn) btn.disabled = true;
+  try { toast((await post("api/launch", o.launch)).message); }
+  catch (err) { toast(err.message, true); }
+  finally { if (btn) btn.disabled = false; }
+}
+function pjCard(p) {
+  const all = pjOptions(p), first = pjPrimary(p, all), main = all.filter(o => o.sec !== "work");
+  const where = (p.folders || []).map(f => `${esc(f.pc)}: ${esc(pjHome(f.path))}`).join(" · ");
+  const open = !all.length ? `<button class="pill plain" disabled>Nothing to open yet</button>`
+    : first ? `<button class="pill start" data-pj-open title="${esc(first.o.label)}">▶ Open</button>${all.length > 1 ? `<button class="pill plain" data-pj-ask>Where…</button>` : ""}`
+    : `<button class="pill start" data-pj-open>${main.length ? "▶ Open…" : "📂 Open…"}</button>`;
+  return `<article class="pj${p.hidden ? " hid" : ""}" data-pj="${esc(p.id)}">
+    <div class="pj-top"><span class="pj-icon" aria-hidden="true">${esc(p.icon || "•")}</span>
+      <div class="pj-head"><div class="pj-name">${esc(p.name)}${p.hidden ? ` <span class="badge off">HIDDEN</span>` : ""}</div>
+        ${p.about ? `<p class="pj-about">${esc(p.about)}</p>` : ""}</div>
+      <button class="pen" data-pj-edit title="Edit ${esc(p.name)}" aria-label="Edit ${esc(p.name)}">✎</button></div>
+    ${where ? `<div class="pj-where">${where}</div>` : ""}
+    ${p.note ? `<div class="pj-note">${esc(p.note)}</div>` : ""}
+    <div class="pj-btns">${open}${p.github ? `<a class="pj-gh" href="${esc(p.github)}" target="_blank" rel="noopener">GitHub ↗</a>` : ""}</div>
+    ${first && all.length > 1 ? `<div class="pj-remember">Opens: ${esc(first.o.label)}${first.o.off ? " (not available now)" : ""}${first.kept ? ` · <button data-pj-forget>ask every time</button>` : ""}</div>` : ""}
+  </article>`;
+}
+function pjRender() {
+  if (!pj.data) return;
+  const q = $("#pj-search").value.trim().toLowerCase(), showHidden = $("#pj-hidden").checked;
+  const items = pj.data.projects.filter(p => (showHidden || !p.hidden) && (!q || [p.name, p.about, p.group, p.note,
+    ...(p.folders || []).map(f => f.path), ...(p.places || []).map(x => x.label + " " + (x.url || ""))].join(" ").toLowerCase().includes(q)));
+  const groups = [...new Set([...(pj.data.groups || []), ...items.map(p => p.group || "Other")])];
+  const html = groups.map(g => {
+    const list = items.filter(p => (p.group || "Other") === g);
+    return list.length ? `<section class="pj-group"><h2 class="section-label">${esc(g)}</h2><div class="pj-grid">${list.map(pjCard).join("")}</div></section>` : "";
+  }).join("");
+  const hiddenN = pj.data.projects.filter(p => p.hidden).length;
+  $("#pj-list").innerHTML = html || `<div class="empty">${q ? "No projects match." : "No projects yet. ＋ Add project adds one."}</div>`;
+  $("#pj-hidden").parentElement.title = hiddenN ? `${hiddenN} hidden` : "None hidden";
+}
+/* The 2-second readings say which PCs are up and what each one offers; redraw only when that changes. */
+function pjStateChanged() {
+  const sig = JSON.stringify((state?.machines || []).map(m => [m.name, !!m.online, m.projects || null]));
+  if (sig === pj.sig) return;
+  pj.sig = sig;
+  if (pj.data && !$("#view-projects").hidden) pjRender();
+}
+function pjAsk(p) {
+  const d = $("#pj-where"), all = pjOptions(p), kept = (opts.pjChoice || {})[p.id];
+  const secs = [["browser", "In this browser"], ["screen", "On a PC's screen"], ["work", "Work on it"]];
+  d.innerHTML = `<div class="pj-in">
+    <h2 id="pj-where-h">${esc(p.icon || "")} Where should ${esc(p.name)} open?</h2>
+    ${secs.map(([sec, title]) => {
+      const list = all.map((o, i) => [o, i]).filter(([o]) => o.sec === sec);
+      return list.length ? `<div class="section-label">${title}</div><div class="pj-opts">${list.map(([o, i]) => `
+        <button type="button" class="pj-opt" data-pj-opt="${i}"${o.off ? ` aria-disabled="true"` : ""}>
+          <span class="i" aria-hidden="true">${o.icon}</span><b>${esc(o.label)}${o.key === kept ? " ✓" : ""}</b><small>${esc(o.off || o.detail)}</small></button>`).join("")}</div>` : "";
+    }).join("")}
+    ${all.length ? `<label class="pj-check"><input type="checkbox" id="pj-rem"${kept ? " checked" : ""}> Remember my choice (▶ Open goes straight there)</label>`
+      : `<p class="hint-muted">Nothing to open yet. ✎ adds a web link.</p>`}
+    <div class="pj-end"><button type="button" class="pill plain" data-pj-close>Cancel</button></div></div>`;
+  d.onclick = e => {
+    if (e.target === d || e.target.closest("[data-pj-close]")) { d.close(); return; }   // the backdrop, or Cancel
+    const b = e.target.closest("[data-pj-opt]");
+    if (!b) return;
+    const o = all[+b.dataset.pjOpt];
+    if (o.off) { toast(o.off, true); return; }
+    opts.pjChoice = { ...(opts.pjChoice || {}) };
+    if ($("#pj-rem", d)?.checked) opts.pjChoice[p.id] = o.key; else delete opts.pjChoice[p.id];
+    saveOpts();
+    d.close();
+    pjGo(o);
+    pjRender();
+  };
+  d.showModal();
+  $(".pj-opt:not([aria-disabled])", d)?.focus();
+}
+function pjEdit(p) {
+  const d = $("#pj-edit"), isNew = !p;
+  p = p || { name: "", icon: "", about: "", group: "", github: "", hidden: false, places: [], folders: [] };
+  const links = (p.places || []).filter(x => x.kind === "web").map(x => `${x.label} | ${x.url}`).join("\n");
+  const fixed = [...(p.places || []).filter(x => x.kind !== "web").map(x => `${x.kind === "run" ? "▶" : "🖥"} ${x.label} (${x.pc})`),
+    ...(p.folders || []).map(f => `📂 ${f.pc}: ${pjHome(f.path)}`)];
+  const groups = [...new Set([...(pj.data?.groups || []), ...(pj.data?.projects || []).map(x => x.group).filter(Boolean)])];
+  d.innerHTML = `<form class="pj-in">
+    <h2 id="pj-edit-h">${isNew ? "Add a project" : "Edit " + esc(p.name)}</h2>
+    <div class="pj-two"><label class="pj-f">Icon<input name="icon" maxlength="8" value="${esc(p.icon)}" placeholder="🙂" autocomplete="off"></label>
+      <label class="pj-f">Name<input name="name" maxlength="60" required value="${esc(p.name)}" autocomplete="off"></label></div>
+    <label class="pj-f">What it is<textarea name="about" maxlength="300" rows="2">${esc(p.about)}</textarea></label>
+    <label class="pj-f">Group<input name="group" maxlength="40" list="pj-groups" value="${esc(p.group)}" autocomplete="off">
+      <datalist id="pj-groups">${groups.map(g => `<option value="${esc(g)}">`).join("")}</datalist></label>
+    <label class="pj-f">Web links<textarea name="links" rows="3" placeholder="Website | https://example.com">${esc(links)}</textarea>
+      <span class="pj-hint">One per line: a name, a bar ( | ), then the address.</span></label>
+    <label class="pj-f">GitHub page<input name="github" maxlength="500" value="${esc(p.github)}" placeholder="https://github.com/…" autocomplete="off"></label>
+    ${fixed.length ? `<div><div class="section-label">Set up on the PCs</div><p class="pj-hint">${fixed.map(esc).join("<br>")}</p>
+      <p class="pj-hint">Programs, shared folders and project folders are set in each PC's hub settings: ask Claude to change them.</p></div>` : ""}
+    <label class="pj-check"><input type="checkbox" name="hidden"${p.hidden ? " checked" : ""}> Hide it (Show hidden brings it back)</label>
+    <div class="pj-end">${isNew ? "" : `<button type="button" class="pill stop" data-pj-del>Remove</button><span class="spacer"></span>`}
+      <button type="button" class="pill plain" data-pj-close>Cancel</button><button type="submit" class="pill start">Save</button></div>
+  </form>`;
+  const form = $("form", d);
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(form), btn = $("[type=submit]", form);
+    const linkList = String(f.get("links") || "").split("\n").map(l => l.trim()).filter(Boolean).map(l => {
+      const i = l.lastIndexOf("|");   // "Name | https://…"; a line with only an address is fine too
+      return i < 0 ? { label: "", url: l } : { label: l.slice(0, i).trim(), url: l.slice(i + 1).trim() };
+    });
+    btn.disabled = true;
+    try {
+      const r = await post((pj.base ?? "") + "api/projects/save", { project: { id: isNew ? undefined : p.id, name: f.get("name"), icon: f.get("icon"),
+        about: f.get("about"), group: f.get("group"), github: f.get("github"), hidden: !!f.get("hidden"), links: linkList } });
+      toast(r.message); d.close(); pjLoad();
+    } catch (err) { toast(err.message, true); btn.disabled = false; }
+  };
+  d.onclick = async e => {
+    if (e.target === d || e.target.closest("[data-pj-close]")) { d.close(); return; }
+    if (e.target.closest("[data-pj-del]")) {
+      if (!confirm(`Take ${p.name} off the Projects tab?\n\nIts files stay where they are. (To keep it but tuck it away, tick "Hide it" instead.)`)) return;
+      try { toast((await post((pj.base ?? "") + "api/projects/save", { delete: p.id })).message); d.close(); pjLoad(); }
+      catch (err) { toast(err.message, true); }
+    }
+  };
+  d.showModal();
+  $("[name=name]", d).focus();
+}
+$("#pj-list").addEventListener("click", e => {
+  const card = e.target.closest("[data-pj]"), b = e.target.closest("button");
+  if (!card || !b || b.disabled) return;
+  const p = pjFind(card.dataset.pj);
+  if (!p) return;
+  if (b.hasAttribute("data-pj-edit")) pjEdit(p);
+  else if (b.hasAttribute("data-pj-ask")) pjAsk(p);
+  else if (b.hasAttribute("data-pj-forget")) { opts.pjChoice = { ...(opts.pjChoice || {}) }; delete opts.pjChoice[p.id]; saveOpts(); pjRender(); }
+  else if (b.hasAttribute("data-pj-open")) { const first = pjPrimary(p); first ? pjGo(first.o, b) : pjAsk(p); }
+});
+$("#pj-search").addEventListener("input", pjRender);
+$("#pj-hidden").addEventListener("change", pjRender);
+$("#pj-add").addEventListener("click", () => pjEdit(null));
+
 /* ---------- options ---------- */
 $("#o-refresh").value = String(opts.refresh);
 $("#o-stopped").checked = opts.stopped; $("#o-models").checked = opts.models; $("#o-confirm").checked = opts.confirm;
@@ -1947,7 +2224,7 @@ $("#o-name").value = opts.name || "";
 $("#o-name").onchange = e => { opts.name = e.target.value.trim().slice(0, 40); e.target.value = opts.name; saveOpts(); };
 
 showView(location.hash.startsWith("#doc=") ? "docs" : location.hash.startsWith("#checklist=") ? "checks"
-  : location.hash === "#telegram" ? "telegram" : opts.view);
+  : location.hash === "#telegram" ? "telegram" : location.hash === "#projects" ? "projects" : opts.view);
 poll();
 </script>
 </body>

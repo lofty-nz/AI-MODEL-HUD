@@ -43,6 +43,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(1, os.path.expanduser("~/Documents/sysmon"))
 import aimon_core as core  # noqa: E402
 import checklists  # noqa: E402
+import projects  # noqa: E402
 import health  # noqa: E402
 import sysmon  # noqa: E402
 import telegram_hub  # noqa: E402
@@ -67,6 +68,13 @@ DEFAULTS = {
                              # Whisper model already in that container. Only the hub with the docs needs it.
     "telegram": False,       # True = this hub runs the Telegram bot (telegram_hub.py). Only one hub may.
     "telegram_url": None,    # another hub that has the bot (default: docs_url); its Telegram tab is shown here
+    "files_port": 8091,      # Projects tab: the port that serves the "serve" folders (its own address, apart from the hub's)
+    "files_url": None,       # how other devices reach that port (default http://<lan_ip>:<files_port>)
+    "serve": {},             # {"qr-logo-maker": "~/Sandbox/qr-logo-maker"}: project folders that open in a browser,
+                             # at <files_url>/<key>/ (web file types only, no hidden files)
+    "launchers": {},         # {"mtasks": {"name": "mTasks", "exec": [...], "cwd": "...", "running": "<pgrep -f pattern>"}}
+                             # or {"desktop": "~/Desktop/Camera.desktop"}: programs the Projects tab may start on this PC's screen
+    "folder_roots": ["~/Sandbox", "~/Documents", "~/projects", "~/ai"],   # project folders it may open in VS Code / Files
     "allow": ["127.0.0.0/8", "::1/128", "192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12",
               "100.64.0.0/10"],   # who may use the hub at all: this PC, the home network, Tailscale
 }
@@ -955,6 +963,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"docs": [], "groups": [], "remote": CFG["docs_url"]})
             else:
                 self.send_json(list_docs(CFG["docs_dir"]))
+        elif path == "/api/projects":   # the Projects tab's list, kept in the docs folder like the checklists
+            if not CFG["docs_dir"]:
+                self.send_json({"projects": [], "groups": [], "remote": CFG["docs_url"]})
+            else:
+                try:
+                    self.send_json(projects.load(CFG["docs_dir"]))
+                except ValueError as e:
+                    self.send_json({"error": str(e)}, 500)
         elif path == "/api/checklists":   # the Checklists tab: kept in the docs folder, like the docs
             if not CFG["docs_dir"]:
                 self.send_json({"checklists": [], "remote": CFG["docs_url"]})
@@ -1016,6 +1032,30 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"ok": True, "text": transcribe(self.rfile.read(n))})
                 return
             req = self.body()
+            if self.path == "/api/projects/save":
+                if not CFG["docs_dir"]:
+                    raise ValueError("This hub doesn't keep the projects list")
+                self.send_json({"ok": True, **projects.save(CFG["docs_dir"], req)})
+                return
+            if self.path == "/api/local/launch":   # Projects tab: start a program or open a folder on this PC's screen
+                self.send_json({"ok": True, "message": projects.launch(CFG, req)})
+                return
+            if self.path == "/api/launch":
+                machine = req.get("machine")
+                if machine == CFG["name"]:
+                    self.send_json({"ok": True, "message": projects.launch(CFG, req)})
+                    return
+                peer = next((p for p in CFG["peers"] if p["name"] == machine), None)
+                if not peer:
+                    raise ValueError(f"Unknown PC: {machine}")
+                body = {k: req.get(k) for k in ("run", "folder", "app") if req.get(k)}
+                try:
+                    self.send_json(fetch_json(peer["url"].rstrip("/") + "/api/local/launch", body, timeout=10))
+                except urllib.error.HTTPError as e:
+                    self.send_json(json.loads(e.read() or b"{}") or {"error": str(e)}, e.code)
+                except OSError as e:
+                    raise ValueError(f"{machine} isn't answering ({getattr(e, 'reason', e)})")
+                return
             if self.path == "/api/telegram/send":    # apps on this PC (TTR) and the Telegram tab's message box
                 entry = TG.send(req.get("text"), key=req.get("key"), buttons=req.get("buttons"),
                                 silent=req.get("silent"), source=req.get("source") or "", reply_url=req.get("reply_url"))
@@ -1123,15 +1163,22 @@ CAN_REBOOT = can_reboot()
 PCIE = PcieCaps(CFG["pcie_caps"])
 AUTO = AutoRestart()
 TG = telegram_hub.Telegram(CFG["telegram"], transcribe=transcribe if CFG["dictate"] else None)
+FILES = None   # the Projects tab's files server, started below
 
 
 def local_state():
     """This PC's readings plus its problem list."""
     return {**LOCAL.snapshot(), **HEALTH.snapshot(), "can_reboot": CAN_REBOOT, "pcie_caps": PCIE.snapshot(),
-            "auto_restart": AUTO.snapshot()}
+            "auto_restart": AUTO.snapshot(), "projects": projects.local_info(CFG, FILES)}
 
 if __name__ == "__main__":
     server = ThreadingHTTPServer(("0.0.0.0", CFG["port"]), Handler)
     server.daemon_threads = True
+    try:
+        FILES = projects.start_files_server(CFG["files_port"], CFG["serve"], CFG["allow"])
+    except OSError as e:
+        print(f"aihub: project files not served ({e})", file=sys.stderr, flush=True)
+    if FILES:
+        print(f"Project files on :{CFG['files_port']} ({len(projects.FilesHandler.serve)} folders)", flush=True)
     print(f"AI Hub '{CFG['name']}' on http://0.0.0.0:{CFG['port']}/", flush=True)
     server.serve_forever()
