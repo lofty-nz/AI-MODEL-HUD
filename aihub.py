@@ -555,10 +555,27 @@ class Doors:
         data = json.loads(helper("list", "--json"))
         self._learn(data)
         running = {r["name"]: r.get("state") for r in core.read_containers()}
+        wired = self.wired(data["containers"], data["door_root"])
         for name, c in data["containers"].items():
             c["running"] = running.get(name)
+            c["wired"] = wired.get(name, False)
         data["available"] = True
         return data
+
+    @staticmethod
+    def wired(names, door_root):
+        """Which containers have their door folder mounted at /doors (with propagation), so they can
+        see doors. A container without it would never see a door opened for it."""
+        out = {}
+        for name in names:
+            r = subprocess.run(["docker", "inspect", "-f", "{{json .Mounts}}", name], capture_output=True, text=True, timeout=10)
+            try:
+                mounts = json.loads(r.stdout) if r.returncode == 0 else []
+            except ValueError:
+                mounts = []
+            out[name] = any(m.get("Destination") == "/doors" and m.get("Source") == f"{door_root}/{name}"
+                            and m.get("Propagation") in ("rslave", "slave", "rshared", "shared") for m in mounts or [])
+        return out
 
     def open(self, req, by):
         length = req.get("length")
@@ -571,7 +588,13 @@ class Doors:
             until = int(time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 23, 59, 59, 0, 0, -1)))
         else:
             until = None
-        args = ["open", str(req.get("container") or ""), str(req.get("folder") or ""), str(req.get("mode") or "")]
+        name = str(req.get("container") or "")
+        known = self.list()
+        c = known["containers"].get(name)
+        if c and not c["wired"]:
+            raise ValueError(f"{c.get('label') or name} can't see doors yet: its container has no /doors folder. "
+                             f"Add  - {known['door_root']}/{name}:/doors:ro,rslave  to its volumes and recreate it once.")
+        args = ["open", name, str(req.get("folder") or ""), str(req.get("mode") or "")]
         if until:
             args += ["--until", until]
         with self.lock:

@@ -822,12 +822,12 @@ function drMachine(m) {
   const mn = esc(m.name);
   const doors = m.doors.length ? `<ul class="dr-list">${m.doors.map(d => `<li>
       <span class="dr-what"><b>${esc(d.label)} → ${esc(m.containers[d.container]?.label || d.container)}</b>
-        <small>${esc(d.path)} · inside it: /doors/${esc(d.folder)}</small></span>
+        <small>${esc(d.path)} · ${m.containers[d.container]?.wired === false ? "<b class=\"tg-err\" style=\"display:inline\">not visible: that container has no /doors folder yet</b>" : "inside it: /doors/" + esc(d.folder)}</small></span>
       <span class="dr-tag ${d.mode}">${d.mode === "ro" ? "READ-ONLY" : "READ-WRITE"}</span>
       <span class="dr-when">${d.until ? "closes " + drTime(d.until) : "open until you close it"}</span>
       <button class="pill stop" data-dr="close" data-m="${mn}" data-c="${esc(d.container)}" data-f="${esc(d.folder)}">Close</button></li>`).join("")}</ul>`
     : `<p class="dr-none">No doors open: the AI containers on ${mn} can't see any of your folders.</p>`;
-  const opt = (list, cur) => list.map(([k, v]) => `<option value="${esc(k)}"${k === cur ? " selected" : ""}>${esc(v.label || k)}</option>`).join("");
+  const opt = (list, cur) => list.map(([k, v]) => `<option value="${esc(k)}"${k === cur ? " selected" : ""}>${esc(v.label || k)}${v.wired === false ? " (not set up yet)" : ""}</option>`).join("");
   const seg = (key, choices) => `<span class="dr-seg" role="radiogroup">${Object.entries(choices).map(([k, label]) =>
     `<label><input type="radio" name="dr-${key}-${mn}" value="${k}" data-drf="${key}" data-m="${mn}"${f[key] === k ? " checked" : ""}>${label}</label>`).join("")}</span>`;
   const form = cs.length && fs.length ? `<div class="dr-form">
@@ -839,7 +839,9 @@ function drMachine(m) {
       <button class="pill start" data-dr="open" data-m="${mn}">Open door</button></div>`
     : `<p class="dr-none">Nothing to open yet: no ${cs.length ? "approved folders" : "containers allowed doors"}.</p>`;
   const conts = `<ul class="dr-list">${cs.map(([k, c]) => `<li>
-      <span class="dr-what"><b>${esc(c.label || k)}</b><small>container ${esc(k)} · its doors appear at /doors</small></span>
+      <span class="dr-what"><b>${esc(c.label || k)}</b><small>container ${esc(k)} · ${c.wired ? "its doors appear at /doors"
+        : `not set up yet: it needs <code>${esc(m.door_root)}/${esc(k)}:/doors:ro,rslave</code> in its volumes, then recreating once`}</small></span>
+      ${c.wired ? "" : `<span class="dr-tag rw">NO /doors YET</span>`}
       <span class="dr-tag ${c.running === "running" ? "up" : ""}">${c.running === "running" ? "RUNNING" : esc((c.running || "not found").toUpperCase())}</span>
       <button class="pill plain" data-dr="peek" data-m="${mn}" data-c="${esc(k)}"${c.running === "running" ? "" : " disabled"}>Look inside</button>
       ${dr.peek[m.name + "/" + k] != null ? `<pre class="dr-peek">${esc(dr.peek[m.name + "/" + k])}</pre>` : ""}</li>`).join("")}</ul>`;
