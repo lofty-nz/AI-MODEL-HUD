@@ -1,8 +1,8 @@
 """Install or update the 📂 Door files tool in Open WebUI, the way its Workspace → Tools page does.
 Run inside the open-webui container (golive-doors.sh does this):
   docker cp openwebui_door_files.py open-webui:/tmp/ && docker cp openwebui_install_tool.py open-webui:/tmp/
-  docker exec -w /app/backend open-webui python3 /tmp/openwebui_install_tool.py /tmp/openwebui_door_files.py <owner user id>
-  docker exec -w /app/backend open-webui python3 /tmp/openwebui_install_tool.py --remove
+  docker exec -w /app/backend open-webui sh -c 'WEBUI_SECRET_KEY=$(cat .webui_secret_key) python3 /tmp/openwebui_install_tool.py /tmp/openwebui_door_files.py <owner user id>'
+  (or --remove instead of the two paths). Open WebUI's start script loads that key; its code won't import without it.
 """
 import asyncio
 import sys

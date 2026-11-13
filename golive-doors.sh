@@ -49,7 +49,7 @@ cd ~/ai && docker compose up -d open-webui 2>&1 | tail -2"
   say "server: wait for Open WebUI, then install the 📂 Door files tool"
   ssh server "for i in \$(seq 1 60); do [ \"\$(docker inspect -f '{{.State.Health.Status}}' open-webui)\" = healthy ] && break; sleep 3; done; docker inspect -f '{{.State.Health.Status}}' open-webui
     docker cp ~/Documents/aimon/openwebui_door_files.py open-webui:/tmp/ && docker cp ~/Documents/aimon/openwebui_install_tool.py open-webui:/tmp/ &&
-    docker exec -w /app/backend open-webui python3 /tmp/openwebui_install_tool.py /tmp/openwebui_door_files.py $OWNER"
+    docker exec -w /app/backend open-webui sh -c 'WEBUI_SECRET_KEY=\$(cat .webui_secret_key) python3 /tmp/openwebui_install_tool.py /tmp/openwebui_door_files.py $OWNER'"
 
   say "restart both hubs"
   systemctl --user restart aihub
@@ -76,7 +76,7 @@ rollback() {
   ssh server "sudo -n aidoor list --json | python3 -c \"import json,sys; [print(d['container'], d['folder']) for d in json.load(sys.stdin)['doors']]\" | while read c f; do sudo -n aidoor close \$c \$f --by rollback; done"
   cd "$LIVE"; for f in $FILES; do [ -e "$f.$TAG" ] && cp -p "$f.$TAG" "$f"; done
   ssh server "cd ~/Documents/aimon && for f in $FILES; do [ -e \$f.$TAG ] && cp -p \$f.$TAG \$f; done
-    docker cp ~/Documents/aimon/openwebui_install_tool.py open-webui:/tmp/ && docker exec -w /app/backend open-webui python3 /tmp/openwebui_install_tool.py --remove || true
+    docker cp ~/Documents/aimon/openwebui_install_tool.py open-webui:/tmp/ && docker exec -w /app/backend open-webui sh -c 'WEBUI_SECRET_KEY=\$(cat .webui_secret_key) python3 /tmp/openwebui_install_tool.py --remove' || true
     [ -e $COMPOSE.$TAG ] && cp -p $COMPOSE.$TAG $COMPOSE && cd ~/ai && docker compose up -d open-webui 2>&1 | tail -1"
   systemctl --user restart aihub; ssh server 'systemctl --user restart aihub'
   echo "Rolled back (git on the main PC still has the merge: git reset --hard pre-doors-20261113 there if wanted)."
