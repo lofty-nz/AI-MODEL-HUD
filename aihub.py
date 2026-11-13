@@ -339,11 +339,38 @@ def peer_state(peer):
     return s
 
 
+HELPER = "/usr/local/sbin/aidoor"   # the small root helper (aidoor.py): doors, restart, PCIe speed
+
+
+def helper_ok():
+    """Whether aidoor is installed here and the hub may run it without a password."""
+    if not os.path.exists(HELPER):
+        return False
+    try:
+        return subprocess.run(["sudo", "-n", "-l", HELPER, "list"], capture_output=True, timeout=5).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def helper(*args, timeout=30):
+    """Run aidoor; its answer, or ValueError with what it said."""
+    try:
+        r = subprocess.run(["sudo", "-n", HELPER, *map(str, args)], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise ValueError("The door helper took too long")
+    if r.returncode:
+        raise ValueError((r.stderr or r.stdout).strip() or f"aidoor failed ({r.returncode})")
+    return r.stdout.strip()
+
+
 def can_reboot():
-    """Whether this hub may restart its PC: switched on in the config and sudo allows it without a password."""
+    """Whether this hub may restart its PC: switched on in the config and allowed through aidoor (or, on a
+    PC without it, passwordless sudo for systemctl reboot)."""
     if not CFG.get("allow_reboot"):
         return False
     try:
+        if HELPER_OK:
+            return subprocess.run(["sudo", "-n", HELPER, "can", "reboot"], capture_output=True, timeout=5).returncode == 0
         return subprocess.run(["sudo", "-n", "-l", "/usr/bin/systemctl", "reboot"], capture_output=True,
                               timeout=5).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
@@ -352,7 +379,10 @@ def can_reboot():
 
 def restart_now(force):
     """Restarts this PC in 3 s. force skips waiting for programs to stop (they hang on a dead card)."""
-    cmd = ["sudo", "-n", "/usr/bin/systemctl", "reboot"] + (["--force"] if force else [])
+    if HELPER_OK:
+        cmd = ["sudo", "-n", HELPER, "reboot"] + (["--force"] if force else [])
+    else:
+        cmd = ["sudo", "-n", "/usr/bin/systemctl", "reboot"] + (["--force"] if force else [])
     print(f"Running: {' '.join(cmd[2:])}", flush=True)
     subprocess.run(["sync"], timeout=30)
     threading.Timer(3, lambda: subprocess.run(cmd)).start()
@@ -416,11 +446,20 @@ class PcieCaps:
             raise ValueError((r.stderr or r.stdout).strip() or f"setpci failed ({r.returncode})")
         return r.stdout.strip()
 
+    # Through aidoor where it's installed (it only touches the slots in its own settings), else setpci.
     def _write(self, port, gen):
-        self._setpci("-s", port, f"CAP_EXP+30.w={gen:x}:f")
+        if HELPER_OK:
+            helper("pcie", port, "set", gen)
+        else:
+            self._setpci("-s", port, f"CAP_EXP+30.w={gen:x}:f")
 
     def _max_gen(self, port):
-        return int(self._setpci("-s", port, "CAP_EXP+0c.l"), 16) & 0xF
+        raw = helper("pcie", port, "read-max") if HELPER_OK else self._setpci("-s", port, "CAP_EXP+0c.l")
+        return int(raw, 16) & 0xF
+
+    def _target(self, port):
+        raw = helper("pcie", port, "read-target") if HELPER_OK else self._setpci("-s", port, "CAP_EXP+30.w")
+        return int(raw, 16) & 0xF
 
     def set(self, port, on):
         port = str(port or "").lower()
@@ -458,7 +497,7 @@ class PcieCaps:
                     item["speed"] = f.read().split(" PCIe")[0].strip()
                 with open(f"/sys/bus/pci/devices/0000:{port}/current_link_width") as f:
                     item["width"] = "x" + f.read().strip()
-                item["target"] = int(self._setpci("-s", port, "CAP_EXP+30.w"), 16) & 0xF
+                item["target"] = self._target(port)
                 item["max"] = self._max_gen(port)
                 item["max_speed"] = PCIE_SPEEDS.get(item["max"])
             except (OSError, ValueError, subprocess.TimeoutExpired) as err:
@@ -466,6 +505,98 @@ class PcieCaps:
             out.append(item)
         self.cache = (time.time(), out)
         return out
+
+
+class Doors:
+    """📂 File access: AI Hub's side of the doors (aidoor does the mounting, as root).
+
+    A door makes one of your approved folders appear inside a running AI container at /doors/<folder>,
+    read-only or read-write, for an hour, until midnight, or until you close it. The hub closes doors
+    whose time is up (aidoor expire); a restart closes them all."""
+    LENGTHS = {"hour": "1 hour", "today": "until midnight", "closed": "until you close it"}
+
+    def __init__(self):
+        self.ok = HELPER_OK
+        self.next_until = None
+        self.lock = threading.Lock()
+        if self.ok:
+            try:
+                self.list()
+            except ValueError as e:
+                print(f"aidoor: {e}", file=sys.stderr, flush=True)
+            threading.Thread(target=self._run, daemon=True).start()
+
+    def _learn(self, data):
+        times = [d["until"] for d in data.get("doors", []) if d.get("until")]
+        self.next_until = min(times) if times else None
+
+    def _run(self):
+        last_list = time.time()
+        while True:
+            time.sleep(15)
+            if time.time() - last_list > 300:   # learn about doors opened elsewhere (e.g. sudo aidoor open)
+                last_list = time.time()
+                try:
+                    self.list()
+                except ValueError:
+                    pass
+            if self.next_until and time.time() >= self.next_until:
+                try:
+                    with self.lock:
+                        helper("expire", timeout=60)
+                    self.list()
+                except ValueError as e:
+                    print(f"aidoor expire: {e}", file=sys.stderr, flush=True)
+                    self.next_until = time.time() + 60
+
+    def list(self):
+        if not self.ok:
+            return {"available": False}
+        data = json.loads(helper("list", "--json"))
+        self._learn(data)
+        running = {r["name"]: r.get("state") for r in core.read_containers()}
+        for name, c in data["containers"].items():
+            c["running"] = running.get(name)
+        data["available"] = True
+        return data
+
+    def open(self, req, by):
+        length = req.get("length")
+        if length not in self.LENGTHS:
+            raise ValueError("Choose how long: 1 hour, today, or until you close it")
+        if length == "hour":
+            until = int(time.time()) + 3600
+        elif length == "today":
+            t = time.localtime()
+            until = int(time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 23, 59, 59, 0, 0, -1)))
+        else:
+            until = None
+        args = ["open", str(req.get("container") or ""), str(req.get("folder") or ""), str(req.get("mode") or "")]
+        if until:
+            args += ["--until", until]
+        with self.lock:
+            msg = helper(*args, "--by", by)
+        self.list()
+        return msg
+
+    def close(self, req, by):
+        with self.lock:
+            msg = helper("close", str(req.get("container") or ""), str(req.get("folder") or ""), "--by", by)
+        self.list()
+        return msg
+
+    def peek(self, req):
+        """What the container itself sees in /doors (one level down), to check a door from the inside."""
+        name = str(req.get("container") or "")
+        if name not in self.list().get("containers", {}):
+            raise ValueError("That container can't have doors")
+        r = subprocess.run(["docker", "exec", name, "sh", "-c",
+                            "cd /doors 2>/dev/null || { echo '(no /doors in this container yet)'; exit 0; }; "
+                            "ls -1 | head -50 | while read d; do echo \"/doors/$d\"; ls -1A \"$d\" | head -20 | sed 's/^/    /'; done"],
+                           capture_output=True, text=True, timeout=20)
+        if r.returncode:
+            raise ValueError((r.stderr or r.stdout).strip() or f"{name} isn't running")
+        return r.stdout.strip() or "(nothing: no doors are open)"
 
 
 SETTINGS_STATE = os.path.expanduser("~/.local/state/aihub/settings.json")
@@ -987,6 +1118,38 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def doors_post(self, path, req):
+        """📂 File access: open, close or look inside, on this PC or passed on to the one that has it."""
+        what = path.rsplit("/", 1)[1]
+        if not path.startswith("/api/local/"):
+            machine = req.get("machine")
+            if machine != CFG["name"]:
+                peer = next((p for p in CFG["peers"] if p["name"] == machine), None)
+                if not peer:
+                    raise ValueError(f"Unknown PC: {machine}")
+                body = dict(req, by=self.door_by(req))
+                try:
+                    self.send_json(fetch_json(peer["url"].rstrip("/") + "/api/local/doors/" + what, body, timeout=40))
+                except urllib.error.HTTPError as e:
+                    self.send_json(json.loads(e.read() or b"{}") or {"error": str(e)}, e.code)
+                return
+            req = dict(req, by=self.door_by(req))
+        by = str(req.get("by") or self.door_by(req))
+        if not DOORS.ok:
+            raise ValueError(f"File access isn't set up on {CFG['name']} (aidoor isn't installed)")
+        if what == "open":
+            self.send_json({"ok": True, "message": DOORS.open(req, by)})
+        elif what == "close":
+            self.send_json({"ok": True, "message": DOORS.close(req, by)})
+        else:
+            self.send_json({"ok": True, "text": DOORS.peek(req)})
+
+    def door_by(self, req):
+        """Who opened or closed a door, for the log: the name set on the page, which hub, from where."""
+        name = " ".join(str(req.get("name") or "").split())[:30]
+        ip = self.client_address[0].removeprefix("::ffff:")
+        return f"{name + ' · ' if name else ''}AI Hub on {CFG['name']} ({ip})"
+
     def docs_post(self, path):
         folder = CFG["docs_dir"]
         if not folder:
@@ -1038,6 +1201,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"self": CFG["name"], "machines": [local_state()] + peers, "links": links,
                             "label_ideas": core.LABEL_IDEAS,
                             "docs_url": None if CFG["docs_dir"] else CFG["docs_url"]})
+        elif path == "/api/local/doors":
+            self.send_json(DOORS.list())
+        elif path == "/api/doors":   # every PC's doors: this one and its peers
+            def peer_doors(p):
+                try:
+                    return {"name": p["name"], **fetch_json(p["url"].rstrip("/") + "/api/local/doors", timeout=5)}
+                except (OSError, ValueError) as e:
+                    return {"name": p["name"], "available": False, "error": str(getattr(e, "reason", e))}
+            try:
+                mine = DOORS.list()
+            except ValueError as e:
+                mine = {"available": False, "error": str(e)}
+            with ThreadPoolExecutor(max(1, len(CFG["peers"]))) as pool:
+                peers = list(pool.map(peer_doors, CFG["peers"]))
+            self.send_json({"machines": [{"name": CFG["name"], **mine}] + peers})
         elif path == "/api/telegram":
             if TG.enabled:
                 self.send_json(TG.status())
@@ -1164,6 +1342,10 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/telegram/setup":
                 self.send_json({"ok": True, **TG.setup(req)})
                 return
+            if path in ("/api/doors/open", "/api/doors/close", "/api/doors/peek",
+                        "/api/local/doors/open", "/api/local/doors/close", "/api/local/doors/peek"):
+                self.doors_post(path, req)
+                return
             if self.path == "/api/local/action":
                 self.send_json({"ok": True, "message": LOCAL.act(req.get("key"), req.get("action"))})
             elif self.path == "/api/action":
@@ -1255,9 +1437,11 @@ class Handler(BaseHTTPRequestHandler):
 CFG = load_config()
 LOCAL = Local(CFG)
 HEALTH = health.Health(LOCAL)
+HELPER_OK = helper_ok()
 CAN_REBOOT = can_reboot()
 PCIE = PcieCaps(CFG["pcie_caps"])
 AUTO = AutoRestart()
+DOORS = Doors()
 TG = telegram_hub.Telegram(CFG["telegram"], transcribe=transcribe if CFG["dictate"] else None,
                           reply_urls=CFG["telegram_reply_urls"])
 AUTH = hub_auth.Auth()

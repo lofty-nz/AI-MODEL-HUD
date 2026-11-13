@@ -432,6 +432,38 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
 }
 
 /* Options */
+/* ---------- 📂 File access (doors) ---------- */
+.dr { display: grid; gap: 16px; max-width: 1100px; }
+.dr .card { padding: 16px 18px; }
+.dr h2 { margin: 0 0 6px; font-size: 17px; }
+.dr h3 { margin: 18px 0 8px; font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
+.dr-intro { color: var(--muted); font-size: 13px; margin: 0; max-width: 75ch; }
+.dr-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.dr-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 10px 12px; border-top: 1px solid var(--line); background: var(--panel-2); }
+.dr-list li:first-child { border-top: 0; }
+.dr-what { flex: 1 1 260px; min-width: 0; }
+.dr-what b { display: block; }
+.dr-what small { color: var(--muted); overflow-wrap: anywhere; }
+.dr-tag { font-size: 11px; font-weight: 800; letter-spacing: .04em; border-radius: 999px; padding: 2px 8px; background: var(--track); white-space: nowrap; }
+.dr-tag.rw { background: color-mix(in srgb, var(--amber) 30%, transparent); }
+.dr-tag.up { background: color-mix(in srgb, var(--green) 25%, transparent); }
+.dr-when { color: var(--muted); font-size: 12px; }
+.dr-none { color: var(--muted); font-size: 13px; margin: 0; }
+.dr-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.dr-form select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 7px 9px; font: inherit; font-size: 13px; max-width: 100%; }
+.dr-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.dr-seg label { padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; color: var(--muted); }
+.dr-seg input { position: absolute; opacity: 0; pointer-events: none; }
+.dr-seg label:has(input:checked) { background: var(--btn); color: var(--text); }
+.dr-seg label:has(input:focus-visible) { outline: 2px solid var(--link); outline-offset: -2px; }
+.dr .pill { padding: 7px 14px; font-size: 12px; }
+.dr-peek { margin: 0; padding: 10px 12px; background: var(--bg); border-top: 1px solid var(--line); flex-basis: 100%;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; max-height: 260px; overflow: auto; }
+.dr-log { list-style: none; margin: 0; padding: 0; font-size: 12px; color: var(--muted); }
+.dr-log li { padding: 4px 0; border-top: 1px dashed var(--line); }
+.dr-log li:first-child { border-top: 0; }
+.dr-log b { color: var(--text); font-weight: 600; }
+.dr code { font-size: 12px; overflow-wrap: anywhere; }
 .opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; align-items: start; }
 .opts .card { padding: 16px; }
 .opts h2 { margin: 0 0 12px; font-size: 16px; }
@@ -531,6 +563,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
       <button role="tab" data-view="guides">Guides</button>
       <button role="tab" data-view="checks">Checklists</button>
       <button role="tab" data-view="telegram">Telegram</button>
+      <button role="tab" data-view="doors">File access</button>
       <button role="tab" data-view="options">Options &amp; help</button>
     </nav>
     <div class="spacer"></div>
@@ -606,6 +639,10 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
         </div>
       </div>
     </div>
+  </section>
+
+  <section class="view" id="view-doors" hidden>
+    <div class="dr" id="doors-body"><p class="hint-muted">Loading…</p></div>
   </section>
 
   <section class="view" id="view-options" hidden>
@@ -744,6 +781,108 @@ function applyTheme() {
 }
 applyTheme();
 
+/* ---------- 📂 File access: doors (aidoor, the small root helper, does the mounting) ---------- */
+const dr = { data: null, timer: null, form: {}, peek: {}, busy: false };
+function drTime(ts) {
+  const d = new Date(ts * 1000), same = d.toDateString() === new Date().toDateString();
+  return (same ? "" : d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }) + " ")
+    + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+async function drLoad() {
+  clearTimeout(dr.timer);
+  if (!dr.busy) {
+    try {
+      const r = await fetch("api/doors", { cache: "no-store" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || r.statusText);
+      dr.data = j;
+      if (!document.querySelector("#doors-body select:focus")) drRender();   // don't redraw under an open drop-down
+    } catch (e) {
+      $("#doors-body").innerHTML = `<p class="tg-err">Can't load File access: ${esc(e.message)}</p>`;
+    }
+  }
+  if (!$("#view-doors").hidden) dr.timer = setTimeout(drLoad, 10000);
+}
+const DR_LEN = { hour: "1 hour", today: "Until midnight", closed: "Until I close it" };
+function drLogLine(e, m) {
+  const c = m.containers[e.container]?.label || e.container || "", f = m.folders[e.folder]?.label || e.folder || "";
+  const what = {
+    open: `opened <b>${esc(f)}</b> for <b>${esc(c)}</b> (${e.mode === "rw" ? "read-write" : "read-only"}${e.until ? ", until " + drTime(e.until) : ", until closed"})`,
+    extend: `kept <b>${esc(f)}</b> open for <b>${esc(c)}</b>${e.until ? " until " + drTime(e.until) : " until closed"}`,
+    close: `closed <b>${esc(f)}</b> for <b>${esc(c)}</b>${e.reason ? " (" + esc(e.reason) + ")" : ""}`,
+    approve: `approved the folder <b>${esc(e.path || f)}</b>`, unapprove: `removed the folder <b>${esc(f)}</b> from the list`,
+    "add-container": `allowed doors for <b>${esc(c)}</b>`, reboot: "<b>restarted the PC</b>", pcie: `set slot ${esc(e.port)} to Gen${esc(e.gen)}`,
+  }[e.event] || esc(e.event);
+  return `<li>${drTime(e.at)} · ${what}${e.by ? " · " + esc(e.by) : ""}</li>`;
+}
+function drMachine(m) {
+  if (!m.available) return `<div class="card"><h2>${esc(m.name)}</h2><p class="dr-none">${m.error && !/isn't installed/.test(m.error) ? "Can't reach it: " + esc(m.error) : "File access isn't set up on this PC."}</p></div>`;
+  const cs = Object.entries(m.containers), fs = Object.entries(m.folders);
+  const f = dr.form[m.name] ||= { container: cs[0]?.[0] || "", folder: fs[0]?.[0] || "", mode: "ro", length: "hour" };
+  const mn = esc(m.name);
+  const doors = m.doors.length ? `<ul class="dr-list">${m.doors.map(d => `<li>
+      <span class="dr-what"><b>${esc(d.label)} → ${esc(m.containers[d.container]?.label || d.container)}</b>
+        <small>${esc(d.path)} · inside it: /doors/${esc(d.folder)}</small></span>
+      <span class="dr-tag ${d.mode}">${d.mode === "ro" ? "READ-ONLY" : "READ-WRITE"}</span>
+      <span class="dr-when">${d.until ? "closes " + drTime(d.until) : "open until you close it"}</span>
+      <button class="pill stop" data-dr="close" data-m="${mn}" data-c="${esc(d.container)}" data-f="${esc(d.folder)}">Close</button></li>`).join("")}</ul>`
+    : `<p class="dr-none">No doors open: the AI containers on ${mn} can't see any of your folders.</p>`;
+  const opt = (list, cur) => list.map(([k, v]) => `<option value="${esc(k)}"${k === cur ? " selected" : ""}>${esc(v.label || k)}</option>`).join("");
+  const seg = (key, choices) => `<span class="dr-seg" role="radiogroup">${Object.entries(choices).map(([k, label]) =>
+    `<label><input type="radio" name="dr-${key}-${mn}" value="${k}" data-drf="${key}" data-m="${mn}"${f[key] === k ? " checked" : ""}>${label}</label>`).join("")}</span>`;
+  const form = cs.length && fs.length ? `<div class="dr-form">
+      <select data-drf="container" data-m="${mn}" aria-label="Container">${opt(cs, f.container)}</select>
+      <span class="hint-muted">may see</span>
+      <select data-drf="folder" data-m="${mn}" aria-label="Folder">${opt(fs, f.folder)}</select>
+      ${seg("mode", { ro: "Read-only", rw: "Read-write" })}
+      ${seg("length", DR_LEN)}
+      <button class="pill start" data-dr="open" data-m="${mn}">Open door</button></div>`
+    : `<p class="dr-none">Nothing to open yet: no ${cs.length ? "approved folders" : "containers allowed doors"}.</p>`;
+  const conts = `<ul class="dr-list">${cs.map(([k, c]) => `<li>
+      <span class="dr-what"><b>${esc(c.label || k)}</b><small>container ${esc(k)} · its doors appear at /doors</small></span>
+      <span class="dr-tag ${c.running === "running" ? "up" : ""}">${c.running === "running" ? "RUNNING" : esc((c.running || "not found").toUpperCase())}</span>
+      <button class="pill plain" data-dr="peek" data-m="${mn}" data-c="${esc(k)}"${c.running === "running" ? "" : " disabled"}>Look inside</button>
+      ${dr.peek[m.name + "/" + k] != null ? `<pre class="dr-peek">${esc(dr.peek[m.name + "/" + k])}</pre>` : ""}</li>`).join("")}</ul>`;
+  const folders = `<ul class="dr-list">${fs.map(([k, v]) => `<li><span class="dr-what"><b>${esc(v.label || k)}</b><small>${esc(v.path)}</small></span></li>`).join("")}</ul>
+    <p class="hint-muted" style="margin:8px 0 0">To add a folder, run this on ${mn} (it asks for your password): <code>sudo aidoor approve ~/path/to/folder --label "A name"</code>. Hidden folders (like <code>.ssh</code> or <code>.config</code>) and your whole home folder can't be added.</p>`;
+  const log = m.log.length ? `<ul class="dr-log">${m.log.slice(-15).reverse().map(e => drLogLine(e, m)).join("")}</ul>` : `<p class="dr-none">Nothing yet.</p>`;
+  return `<div class="card"><h2>${mn}</h2>
+    <h3>Open doors</h3>${doors}
+    <h3>Open a door</h3>${form}
+    <h3>Containers that may have doors</h3>${conts}
+    <h3>Approved folders</h3>${folders}
+    <h3>Log</h3>${log}</div>`;
+}
+function drRender() {
+  $("#doors-body").innerHTML = `<div class="card"><h2>📂 File access</h2>
+    <p class="dr-intro">A <b>door</b> lets one AI container see one of your folders, at <code>/doors/&lt;folder&gt;</code> inside it, read-only or read-write, for as long as you choose. With no door open, the AI containers see none of your files. A door appears in the running container straight away (no restart), closes by itself when its time is up, and every door closes when the PC restarts. Every open and close is logged.</p></div>`
+    + dr.data.machines.map(drMachine).join("");
+}
+$("#doors-body").addEventListener("change", e => {
+  const el = e.target.closest("[data-drf]");
+  if (!el) return;
+  (dr.form[el.dataset.m] ||= {})[el.dataset.drf] = el.value;
+});
+$("#doors-body").addEventListener("click", async e => {
+  const b = e.target.closest("[data-dr]");
+  if (!b || b.disabled) return;
+  const a = b.dataset.dr, machine = b.dataset.m, m = dr.data.machines.find(x => x.name === machine);
+  let body = { machine, name: opts.name || "" };
+  if (a === "open") {
+    const f = dr.form[machine];
+    if (f.mode === "rw" && !confirm(`Read-write lets ${m.containers[f.container]?.label || f.container} change and delete files in ${m.folders[f.folder]?.label || f.folder}. Open it read-write?`)) return;
+    body = { ...body, container: f.container, folder: f.folder, mode: f.mode, length: f.length };
+  } else body = { ...body, container: b.dataset.c, folder: b.dataset.f };
+  b.disabled = true; dr.busy = true;
+  try {
+    const j = await post("api/doors/" + a, body);
+    if (a === "peek") dr.peek[machine + "/" + b.dataset.c] = j.text;
+    else toast(j.message || "Done");
+  } catch (err) { toast(err.message, true); }
+  dr.busy = false;
+  drLoad();
+});
+
 /* ---------- tabs ---------- */
 function showView(name) {
   opts.view = name; saveOpts();
@@ -753,6 +892,7 @@ function showView(name) {
   if (name === "guides") gdLoad();
   if (name === "projects") pjLoad();
   if (name === "telegram") tgLoad(); else clearTimeout(tgTimer);
+  if (name === "doors") drLoad(); else clearTimeout(dr.timer);
   if (name === "checks") clLoad(); else clStop();
 }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => showView(b.dataset.view));
@@ -2418,7 +2558,8 @@ $("#o-name").onchange = e => { opts.name = e.target.value.trim().slice(0, 40); e
 
 showView(location.hash.startsWith("#doc=") ? "docs" : location.hash.startsWith("#checklist=") ? "checks"
   : location.hash.startsWith("#guide=") ? "guides"
-  : location.hash === "#telegram" ? "telegram" : location.hash === "#projects" ? "projects" : opts.view);
+  : location.hash === "#telegram" ? "telegram" : location.hash === "#projects" ? "projects"
+  : location.hash === "#doors" ? "doors" : opts.view);
 poll();
 
 /* ---------- Login card (Options): log out ---------- */
@@ -2429,6 +2570,7 @@ for (const [id, everywhere] of [["logout-here", false], ["logout-all", true]]) {
     location.reload();
   });
 }
+
 </script>
 </body>
 </html>
