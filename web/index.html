@@ -199,6 +199,21 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
 .prose th { background: var(--panel-2); }
 .prose blockquote { margin: 0; padding: 4px 14px; border-left: 3px solid var(--link); color: var(--muted); }
 .empty { color: var(--muted); padding: 40px 20px; text-align: center; }
+
+/* Copy buttons on commands (every Markdown doc; the Guides tab also puts a small one after each `inline code`) */
+.prose .codebox { border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); margin: 12px 0; overflow: hidden; }
+.prose .codebox pre { margin: 0; border: 0; border-radius: 0; background: none; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cb-head { display: flex; align-items: center; gap: 8px; padding: 4px 5px 4px 12px; border-bottom: 1px solid var(--line); min-height: 34px; }
+.cb-label { flex: 1; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.copybtn { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  border-radius: 8px; padding: 3px 10px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.copybtn:hover { background: var(--btn); }
+.copybtn:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.copybtn svg { width: 14px; height: 14px; flex: none; }
+.copybtn.copied { background: var(--green); border-color: var(--green); color: #fff; }
+.copybtn.failed { background: var(--amber); border-color: var(--amber); color: #fff; }
+.copybtn.mini { padding: 2px 4px; margin-left: 3px; vertical-align: -2px; border-radius: 6px; }
+.copybtn.mini svg { width: 12px; height: 12px; }
 /* Docs: filters, tags, importance, comments, adding */
 .doc-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .doc-tools select { flex: 1 1 100px; min-width: 0; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; font: inherit; font-size: 13px; }
@@ -513,6 +528,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
       <button role="tab" data-view="overview" aria-selected="true">Overview</button>
       <button role="tab" data-view="projects">Projects</button>
       <button role="tab" data-view="docs">Docs</button>
+      <button role="tab" data-view="guides">Guides</button>
       <button role="tab" data-view="checks">Checklists</button>
       <button role="tab" data-view="telegram">Telegram</button>
       <button role="tab" data-view="options">Options &amp; help</button>
@@ -553,6 +569,17 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
         <div id="doc-list"></div>
       </div>
       <div class="viewer" id="viewer"><div class="empty">Pick a document on the left.</div></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-guides" hidden>
+    <div class="docs">
+      <div class="doc-list">
+        <input type="search" id="gd-search" placeholder="Search guides" aria-label="Search guides">
+        <div id="gd-list"><p class="hint-muted">Loading…</p></div>
+        <p class="hint-muted">Every command has a Copy button. A new guide is any doc in the "How-to guides" category (Docs → ＋ Add).</p>
+      </div>
+      <div class="viewer" id="gd-viewer"><div class="empty">Pick a guide on the left.</div></div>
     </div>
   </section>
 
@@ -703,6 +730,7 @@ function showView(name) {
   document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === name));
   document.querySelectorAll(".view").forEach(v => v.hidden = v.id !== "view-" + name);
   if (name === "docs") loadDocs();
+  if (name === "guides") gdLoad();
   if (name === "projects") pjLoad();
   if (name === "telegram") tgLoad(); else clearTimeout(tgTimer);
   if (name === "checks") clLoad(); else clStop();
@@ -1146,6 +1174,147 @@ async function openDoc(id) {
     if (!prose) return;
     prose.innerHTML = d.kind === "markdown" && window.marked ? marked.parse(text) : `<pre>${esc(text)}</pre>`;
     prose.querySelectorAll("a[href^='http']").forEach(a => { a.target = "_blank"; a.rel = "noopener"; });
+    if (d.kind === "markdown") addCopyButtons(prose, false);
+  }
+}
+
+/* ---------- copy buttons ---------- */
+/* Each code block gets a Copy button in a small header; a block whose language word starts with a capital
+   (```Server-terminal, ```Main-PC) shows that word as a label instead ("SERVER TERMINAL"), to say where it runs.
+   withInline also puts a small copy button after every `inline code` (the Guides tab: addresses, ports, names). */
+const ICON_COPY = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>`;
+const ICON_DONE = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
+function copyBtnLook(b, state) {
+  const mini = b.classList.contains("mini");
+  b.classList.toggle("copied", state === "copied");
+  b.classList.toggle("failed", state === "failed");
+  b.innerHTML = state === "copied" ? ICON_DONE + (mini ? "" : "<span>Copied</span>")
+    : state === "failed" ? (mini ? "<span>Ctrl+C</span>" : "<span>Press Ctrl+C</span>")
+    : ICON_COPY + (mini ? "" : "<span>Copy</span>");
+  const what = mini ? "this" : "this command";
+  b.title = state === "copied" ? "Copied" : state === "failed" ? "The browser blocked copying; the text is selected, press Ctrl+C" : "Copy " + what;
+  b.setAttribute("aria-label", b.title);
+}
+function addCopyButtons(root, withInline) {
+  root.querySelectorAll("pre").forEach(pre => {
+    if (pre.closest(".codebox")) return;
+    const m = /(?:^|\s)language-(\S+)/.exec(pre.querySelector("code")?.className || "");
+    const label = m && /^[A-Z]/.test(m[1]) ? m[1].replace(/[-_]+/g, " ") : "";
+    const box = document.createElement("div");
+    box.className = "codebox";
+    box.innerHTML = `<div class="cb-head"><span class="cb-label">${esc(label)}</span><button type="button" class="copybtn"></button></div>`;
+    pre.replaceWith(box);
+    box.append(pre);
+  });
+  if (withInline) root.querySelectorAll(":not(pre) > code").forEach(code => {
+    if (code.nextElementSibling?.classList.contains("copybtn")) return;
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "copybtn mini";
+    code.after(b);
+  });
+  root.querySelectorAll(".copybtn").forEach(b => { if (!b.innerHTML) copyBtnLook(b, ""); });
+}
+function copyText(text) {
+  if (navigator.clipboard?.writeText && window.isSecureContext) return navigator.clipboard.writeText(text).catch(() => copyOldWay(text));
+  return copyOldWay(text);
+}
+function copyOldWay(text) {   // plain-http pages (http://<LAN IP>:8090) have no navigator.clipboard; the old copy command still works there
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.readOnly = true;
+  ta.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0";
+  document.body.append(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) {}
+  ta.remove();
+  return ok ? Promise.resolve() : Promise.reject(new Error("copy blocked"));
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest(".copybtn");
+  if (!b) return;
+  const src = b.closest(".codebox")?.querySelector("pre") || b.previousElementSibling;
+  // no trailing newline, so pasting into a terminal never runs the command before you press Enter
+  const text = (src?.textContent || "").replace(/\s+$/, "");
+  const done = state => {
+    clearTimeout(b._reset);
+    copyBtnLook(b, state);
+    b.focus({ preventScroll: true });
+    b._reset = setTimeout(() => copyBtnLook(b, ""), state === "copied" ? 1800 : 5000);
+  };
+  copyText(text).then(() => done("copied"), () => {
+    done("failed");
+    if (!src) return;
+    const r = document.createRange(); r.selectNodeContents(src);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  });
+});
+
+/* ---------- guides ---------- */
+/* The Guides tab is the docs in the "How-to guides" category, read with a Copy button on every command and on
+   every `inline code` value. Adding a guide = adding a doc in that category (Docs → ＋ Add, or index.json). */
+const GUIDE_GROUP = "How-to guides";
+let gdDocs = null, gdBase = "", gdCur = null, gdToken = 0;
+const gdSrc = d => d.file ? gdBase + "docs/" + encodeURIComponent(d.file) : d.url;
+
+async function gdLoad() {
+  try {
+    let base = "", j = await (await fetch("api/docs", { cache: "no-store" })).json();
+    if (j.remote) {   // this hub has no docs folder; use the one that does
+      base = j.remote.replace(/\/$/, "") + "/";
+      j = await (await fetch(base + "api/docs", { cache: "no-store" })).json();
+    }
+    gdBase = base;
+    gdDocs = j.docs.filter(d => d.group === GUIDE_GROUP)
+      .sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" }));
+    gdRenderList();
+    const want = location.hash.startsWith("#guide=") ? decodeURIComponent(location.hash.slice(7)) : opts.guide;
+    if (!gdCur || !gdDocs.some(d => docId(d) === gdCur)) gdOpen(want);
+    else history.replaceState(null, "", "#guide=" + encodeURIComponent(gdCur));
+  } catch (err) {
+    $("#gd-list").innerHTML = `<div class="err">Couldn't load the guides: ${esc(err.message)}</div>`;
+  }
+}
+
+function gdRenderList() {
+  if (!gdDocs) return;
+  const q = $("#gd-search").value.trim().toLowerCase();
+  const list = gdDocs.filter(d => !q || docText(d).includes(q));
+  $("#gd-list").innerHTML = list.map(d => `<button class="doc" data-guide="${esc(docId(d))}" aria-current="${docId(d) === gdCur}">
+      <b>${esc(d.title)}${d.kind !== "markdown" ? `<span class="kind">${d.kind === "link" ? "LIVE" : esc(d.kind.toUpperCase())}</span>` : ""}</b>
+      <span>${esc(d.about)}</span>
+    </button>`).join("")
+    || `<div class="empty">${gdDocs.length ? "No guides match." : "No guides yet."}</div>`;
+}
+$("#gd-search").addEventListener("input", gdRenderList);
+$("#gd-list").addEventListener("click", e => { const b = e.target.closest("[data-guide]"); if (b) gdOpen(b.dataset.guide); });
+
+async function gdOpen(id) {
+  const d = gdDocs.find(x => docId(x) === id) || gdDocs.find(x => x.kind === "markdown") || gdDocs[0];
+  const v = $("#gd-viewer");
+  if (!d) { v.innerHTML = `<div class="empty">No guides yet. Add a doc in the "${esc(GUIDE_GROUP)}" category and it shows up here.</div>`; return; }
+  const token = ++gdToken;
+  gdCur = docId(d); opts.guide = gdCur; saveOpts();
+  gdRenderList();
+  history.replaceState(null, "", "#guide=" + encodeURIComponent(gdCur));
+  const src = gdSrc(d);
+  const when = d.modified ? `Updated ${new Date(d.modified * 1000).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}` : "";
+  v.innerHTML = `<div class="viewer-head"><h2>${esc(d.title)}</h2><span class="hint-muted">${esc(when)}</span></div><div id="gd-body"></div>`;
+  const body = $("#gd-body");
+  if (d.kind === "pdf" || d.kind === "html") body.innerHTML = `<iframe src="${esc(src)}" title="${esc(d.title)}"></iframe>`;
+  else if (d.kind === "image") body.innerHTML = `<img src="${esc(src)}" alt="${esc(d.title)}">`;
+  else if (d.kind === "link") body.innerHTML = `<div class="prose"><p>${esc(d.about)}</p><p>This guide lives online, so it opens in a new tab: <a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.url)}</a></p></div>`;
+  else {
+    body.innerHTML = `<div class="prose">Loading…</div>`;
+    let text;
+    try { text = await (await fetch(src, { cache: "no-store" })).text(); }
+    catch (err) { if (token === gdToken) body.innerHTML = `<div class="err">Couldn't load this guide: ${esc(err.message)}</div>`; return; }
+    if (token !== gdToken) return;   // another guide was picked meanwhile
+    const prose = $(".prose", body);
+    prose.innerHTML = d.kind === "markdown" && window.marked ? marked.parse(text) : `<pre>${esc(text)}</pre>`;
+    prose.querySelectorAll("a[href^='http']").forEach(a => { a.target = "_blank"; a.rel = "noopener"; });
+    const h1 = prose.querySelector("h1:first-child");   // the header bar already shows the title
+    if (h1 && h1.textContent.trim().toLowerCase() === d.title.trim().toLowerCase()) h1.remove();
+    addCopyButtons(prose, true);
   }
 }
 
@@ -2224,6 +2393,7 @@ $("#o-name").value = opts.name || "";
 $("#o-name").onchange = e => { opts.name = e.target.value.trim().slice(0, 40); e.target.value = opts.name; saveOpts(); };
 
 showView(location.hash.startsWith("#doc=") ? "docs" : location.hash.startsWith("#checklist=") ? "checks"
+  : location.hash.startsWith("#guide=") ? "guides"
   : location.hash === "#telegram" ? "telegram" : location.hash === "#projects" ? "projects" : opts.view);
 poll();
 </script>
