@@ -633,6 +633,12 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
         <p class="section-label" style="margin:0 0 4px">Saved on that PC</p>
         <div id="pc-settings-list"><p class="hint-muted">Loading…</p></div>
       </div>
+      <div class="card" id="login-card">
+        <h2>Login</h2>
+        <p class="hint-muted" style="margin:0 0 10px">You stay logged in on this browser for 30 days. The hub password is the same on both PCs; change it on the main PC with <code>python3 ~/Documents/aimon/hub_auth.py set-password</code>.</p>
+        <div class="tg-row"><button class="pill plain" id="logout-here">Log out of this browser</button>
+          <button class="pill plain" id="logout-all">Log out everywhere</button></div>
+      </div>
       <div class="card help">
         <h2>How it works</h2>
         <p>This page shows what the <b>AI Model Monitor</b> panel (aimon) shows, for both PCs at once, plus temperatures and the docs. aimon's <b>WEB ↗</b> button opens it.</p>
@@ -709,6 +715,20 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script>
 "use strict";
+/* AI Hub login (hub_auth.py): when the hub says "log in first" (the 30 days ran out, or someone pressed
+   Log out everywhere), reload, and the hub shows its login page. The # part of the address is kept. */
+{
+  const hubFetch = window.fetch.bind(window);
+  let reloading = false;
+  window.fetch = async (...args) => {
+    const r = await hubFetch(...args);
+    if (r.status === 401 && !reloading) {
+      const j = await r.clone().json().catch(() => ({}));
+      if (j.login) { reloading = true; location.reload(); }
+    }
+    return r;
+  };
+}
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const GIB = 1024 ** 3;
@@ -1571,7 +1591,7 @@ docsArea.addEventListener("drop", e => {
 
 /* ---------- Telegram ---------- */
 // The bot runs on one hub (the server's). On another PC, /api/telegram names that hub and this tab talks to it.
-let tg = null, tgBase = "", tgTimer = null, tgSeen = "", tgNewTok = false;
+let tg = null, tgBase = "", tgTimer = null, tgSeen = "", tgNewTok = false, tgCode = "";
 const tgTime = ts => new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const tgLinkify = t => esc(t).replace(/https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"]/g, u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
 const tgHubUrl = () => ((state?.links || []).find(l => l.name === "AI Hub" && l.url.startsWith("https:"))?.url) || location.origin + "/";
@@ -1591,12 +1611,13 @@ async function tgLoad() {
   try {
     let j = await tgFetch(tgBase);
     if (!j.enabled && j.remote && !tgBase) { tgBase = j.remote.replace(/\/$/, "") + "/"; j = await tgFetch(tgBase); }
-    tg = j; renderTg();
+    if (!j.pairing) tgCode = "";            // linked, ran out, or Done: forget the code
+    tg = { ...j, pair_code: j.pairing ? tgCode : "" }; renderTg();
   } catch (e) {
     $("#tg-setup").innerHTML = `<p class="tg-err">Can't reach ${tgBase ? "the server's AI Hub" : "the hub"}: ${esc(e.message)}</p>`;
   }
   // faster while a pairing code is waiting, so the page notices the link straight away
-  if (!$("#view-telegram").hidden) tgTimer = setTimeout(tgLoad, tg?.pair_code ? 2000 : 5000);
+  if (!$("#view-telegram").hidden) tgTimer = setTimeout(tgLoad, tg?.pairing ? 2000 : 5000);
 }
 function tgSetupHtml(t) {
   if (!t.enabled) return `<p>No AI Hub runs the Telegram bot yet. On the server, add <code>"telegram": true</code> to <code>~/.config/aihub/config.json</code> and restart AI Hub.</p>`;
@@ -1612,12 +1633,13 @@ function tgSetupHtml(t) {
     <div class="tg-row"><input id="tg-token" type="password" autocomplete="off" spellcheck="false" placeholder="Bot token" aria-label="Bot token">
       <button class="pill start" data-tg="token">Save</button>${tgNewTok && t.has_token ? `<button class="pill plain" data-tg="keep">Cancel</button>` : ""}</div>
     <p class="hint-muted">The token stays on the server. Anyone with it could control the bot, so don't share it.</p>${err}${uses}`;
-  if (!t.chats.length || t.pair_code) {
+  if (!t.chats.length || t.pairing) {
     const code = t.pair_code ? `${t.pair_code.slice(0, 3)} ${t.pair_code.slice(3)}` : "";
     return `<p>${t.chats.length ? "Link another phone or chat to" : "Bot " + bot + " is saved. Now link your Telegram to"} it:</p>
       ${t.pair_code ? `<ol><li>On your phone, <a href="https://t.me/${encodeURIComponent(t.bot)}?start=${t.pair_code}" target="_blank" rel="noopener">open ${esc("@" + t.bot)} in Telegram</a> and press <b>Start</b>,</li>
         <li>or send the bot this code:</li></ol><div class="tg-code num">${code}</div>
         <p class="hint-muted">Works until ${tgTime(t.pair_until)}. This page shows it as soon as it's linked.</p>`
+        : t.pairing ? `<p class="hint-muted">A code is waiting, made on another page or before a reload. Press <b>New code</b> to see one here.</p>`
         : `<p class="hint-muted">The last code ran out. Press <b>New code</b>.</p>`}
       <div class="tg-row"><button class="pill ${t.pair_code ? "plain" : "start"}" data-tg="pair">New code</button>${t.chats.length ? `<button class="pill plain" data-tg="unpair">Done</button>` : ""}<button class="pill plain" data-tg="change">Use a different bot</button></div>${err}${ref}${uses}`;
   }
@@ -1683,7 +1705,9 @@ $("#tg-setup").addEventListener("click", async e => {
   try {
     const j = await post(tgBase + "api/telegram/setup", body);
     if (a === "token") { tgNewTok = false; const tok = $("#tg-token"); if (tok) tok.value = ""; document.activeElement?.blur(); }
-    tg = j; tgSeen = ""; renderTg(); tgLoad();
+    if (j.pair_code) tgCode = j.pair_code;
+    if (a === "unpair") tgCode = "";
+    tg = { ...j, pair_code: j.pairing ? tgCode : "" }; tgSeen = ""; renderTg(); tgLoad();
     toast({ token: "Saved. Now link your Telegram", pair: "New code made", unpair: "Done", test: "Test sent: check your phone", unlink: "Unlinked" }[a]);
   } catch (err) { toast(err.message, true); b.disabled = false; }
 });
@@ -2396,6 +2420,15 @@ showView(location.hash.startsWith("#doc=") ? "docs" : location.hash.startsWith("
   : location.hash.startsWith("#guide=") ? "guides"
   : location.hash === "#telegram" ? "telegram" : location.hash === "#projects" ? "projects" : opts.view);
 poll();
+
+/* ---------- Login card (Options): log out ---------- */
+for (const [id, everywhere] of [["logout-here", false], ["logout-all", true]]) {
+  $("#" + id).addEventListener("click", async () => {
+    if (everywhere && !confirm("Log out every browser and phone that's logged in to this hub? Each one needs the password again.")) return;
+    try { await post("api/logout", { everywhere }); } catch (e) { toast(e.message, true); return; }
+    location.reload();
+  });
+}
 </script>
 </body>
 </html>

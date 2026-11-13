@@ -12,11 +12,15 @@ Then copy the PDF into the docs folder (it shows on the Docs tab) and link it fr
 """
 import html
 import json
+import os
 import re
 import sys
 import time
 import urllib.parse
 import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import hub_auth  # noqa: E402  the machine key (hub.key) gets past the hub's login
 
 RES = {"pass": ("WORKS", "pass"), "fail": ("PROBLEM", "fail"), "skip": ("SKIPPED", "skip")}
 
@@ -36,7 +40,8 @@ def when(t):
 
 
 def build(base, cid):
-    with urllib.request.urlopen(base + "api/checklists/" + urllib.parse.quote(cid)) as r:
+    req = urllib.request.Request(base + "api/checklists/" + urllib.parse.quote(cid), headers=hub_auth.key_header())
+    with urllib.request.urlopen(req) as r:
         g = json.load(r)
     d, st, c = g["list"], g["state"]["items"], g["counts"]
     arch = d.get("archived") or {}
@@ -126,7 +131,7 @@ def main(argv):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         b = p.chromium.launch()
-        pg = b.new_page()
+        pg = b.new_page(extra_http_headers=hub_auth.key_header())   # the screenshots come from the hub too
         pg.set_content(page_html, wait_until="networkidle")
         pg.evaluate("Promise.all([...document.images].map(i => i.complete ? 0 : new Promise(r => { i.onload = i.onerror = r; })))")
         pg.pdf(path=dest, format="A4", print_background=True, display_header_footer=True,

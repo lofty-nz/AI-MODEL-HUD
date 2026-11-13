@@ -47,6 +47,7 @@ import projects  # noqa: E402
 import health  # noqa: E402
 import sysmon  # noqa: E402
 import telegram_hub  # noqa: E402
+import hub_auth  # noqa: E402
 
 CONFIG = os.path.expanduser("~/.config/aihub/config.json")
 DEFAULTS = {
@@ -75,14 +76,19 @@ DEFAULTS = {
     "launchers": {},         # {"mtasks": {"name": "mTasks", "exec": [...], "cwd": "...", "running": "<pgrep -f pattern>"}}
                              # or {"desktop": "~/Desktop/Camera.desktop"}: programs the Projects tab may start on this PC's screen
     "folder_roots": ["~/Sandbox", "~/Documents", "~/projects", "~/ai"],   # project folders it may open in VS Code / Files
-    "allow": ["127.0.0.0/8", "::1/128", "192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12",
-              "100.64.0.0/10"],   # who may use the hub at all: this PC, the home network, Tailscale
+    "allow": ["127.0.0.0/8", "::1/128", "192.168.0.0/16", "10.0.0.0/8",
+              "100.64.0.0/10"],   # who may use the hub at all: this PC, the home network, Tailscale.
+                                  # Docker networks (172.16/12) are left out; add one only for a proxy
+                                  # in front of the hub (the server lists ttr-door's 172.19.0.0/16).
+    "telegram_reply_urls": ["http://127.0.0.1:8766/"],   # where the bot may pass on your answers (TTR)
 }
 POLL_S = 2
 LINK_POLL_S = 15
 PEER_TIMEOUT = 1.5
 FAILED_SHOW_S = 30
 PAGE = os.path.join(HERE, "web", "index.html")
+LOGIN_PAGE = os.path.join(HERE, "web", "login.html")
+PROXY_LIMIT = 40 * 1024 * 1024   # biggest request passed on to the other hub (an upload, recording or picture)
 
 
 def load_config():
@@ -315,8 +321,9 @@ class Local:
 
 
 def fetch_json(url, body=None, timeout=PEER_TIMEOUT):
+    """Ask another hub; the machine key (hub.key) lets it in without a login."""
     data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", **hub_auth.key_header()})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())
 
@@ -831,12 +838,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({"error": "Not allowed from this address"}, 403)
         return False
 
-    def send_json(self, obj, status=200):
+    def send_json(self, obj, status=200, headers=None):
         body = json.dumps(obj).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")   # the main PC's page reads the server's docs list
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -855,7 +863,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        if ctype.startswith("text/html"):
+            self.send_header("X-Frame-Options", "SAMEORIGIN")   # no other site can show the hub in a frame
+            self.send_header("Referrer-Policy", "same-origin")
         self.end_headers()
         self.wfile.write(body)
 
@@ -901,19 +911,81 @@ class Handler(BaseHTTPRequestHandler):
         return ip
 
     def do_OPTIONS(self):
-        # The main PC's page posts comments and uploads to the server's hub: the browser asks first.
-        if not self.allowed():
+        # Pages only talk to the hub they came from (the main PC's hub passes the server's parts on),
+        # so other sites' pages get no permission to call it.
+        self.send_json({"error": "Not allowed"}, 403)
+
+    # ------------------------------------------------------------ login (hub_auth.py)
+    def authed(self):
+        """A logged-in browser (cookie), or a program with the machine key (X-Hub-Key)."""
+        return AUTH.check_key(self.headers.get(hub_auth.KEY_HEADER)) or AUTH.check_cookie(self.headers.get("Cookie"))
+
+    def need_login(self):
+        self.send_json({"error": "Log in to AI Hub first", "login": True}, 401)
+
+    def secure(self):
+        """Whether the page came over https (Tailscale or Caddy), so the cookie only travels encrypted."""
+        return ((self.headers.get("Origin") or "").startswith("https://")
+                or (self.headers.get("X-Forwarded-Proto") or "").lower() == "https")
+
+    def login_post(self, path):
+        req = self.body()
+        address = self.client_address[0].removeprefix("::ffff:")
+        agent = self.headers.get("User-Agent") or ""
+        if path == "/api/login":
+            try:
+                token = AUTH.login(req.get("password"), address, agent)
+            except ValueError as e:
+                self.send_json({"ok": False, "error": str(e)}, 401)
+                return
+            self.send_json({"ok": True}, headers={"Set-Cookie": AUTH.cookie(token, self.secure())})
+        else:   # /api/logout
+            if not self.authed():
+                self.need_login()
+                return
+            AUTH.logout(self.headers.get("Cookie"), address, everywhere=bool(req.get("everywhere")))
+            self.send_json({"ok": True}, headers={"Set-Cookie": AUTH.cookie("", self.secure())})
+
+    # ------------------------------------------------------------ the other hub's parts
+    def remote_for(self, path):
+        """The hub that keeps this part (docs, checklists, projects list, Telegram, dictation) when this
+        one doesn't. The page then only ever talks to the hub it was opened from."""
+        docs = None if CFG["docs_dir"] else CFG["docs_url"]
+        if docs and (path in ("/api/docs", "/api/projects", "/api/projects/save", "/api/checklists")
+                     or path.startswith(("/api/docs/", "/docs/", "/api/checklists/"))):
+            return docs
+        tg = CFG["telegram_url"] or CFG["docs_url"]
+        if not TG.enabled and tg and (path == "/api/telegram" or path.startswith("/api/telegram/")):
+            return tg
+        if not CFG["dictate"] and CFG["docs_url"] and path == "/api/dictate":
+            return CFG["docs_url"]
+        return None
+
+    def proxy(self, base, method):
+        n = int(self.headers.get("Content-Length") or 0)
+        if n > PROXY_LIMIT:
+            self.send_json({"ok": False, "error": "That's too big to send"}, 413)
             return
-        if not self.origin_ok():
-            self.send_json({"error": "Not allowed from that page"}, 403)
+        data = self.rfile.read(n) if method == "POST" else None
+        headers = dict(hub_auth.key_header())
+        if self.headers.get("Content-Type"):
+            headers["Content-Type"] = self.headers["Content-Type"]
+        req = urllib.request.Request(base.rstrip("/") + self.path, data=data, headers=headers, method=method)
+        try:
+            timeout = 320 if self.path.startswith("/api/dictate") else 60
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                status, ctype, body = r.status, r.headers.get("Content-Type"), r.read()
+        except urllib.error.HTTPError as e:
+            status, ctype, body = e.code, e.headers.get("Content-Type"), e.read()
+        except OSError as e:
+            self.send_json({"ok": False, "error": f"The server's AI Hub isn't answering ({getattr(e, 'reason', e)})"}, 502)
             return
-        self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", self.headers.get("Origin") or "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Max-Age", "600")
-        self.send_header("Content-Length", "0")
+        self.send_response(status)
+        self.send_header("Content-Type", ctype or "application/octet-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
+        self.wfile.write(body)
 
     def docs_post(self, path):
         folder = CFG["docs_dir"]
@@ -940,10 +1012,23 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed():
             return
         path = urllib.parse.unquote(self.path.split("?", 1)[0])
-        if path in ("/", "/index.html"):
-            self.send_file(PAGE, "text/html")
-        elif path.startswith("/icons/") and re.fullmatch(r"[\w.-]+\.(png|svg)", path[7:]):
+        if path.startswith("/icons/") and re.fullmatch(r"[\w.-]+\.(png|svg)", path[7:]):
             self.send_file(os.path.join(HERE, "web", "icons", path[7:]))   # link logos, e.g. the TTR app's
+            return
+        if path == "/api/auth":   # the login page asks whether it's needed
+            self.send_json({"logged_in": self.authed(), "name": CFG["name"], "has_password": AUTH.has_password()})
+            return
+        if not self.authed():
+            if path in ("/", "/index.html"):
+                self.send_file(LOGIN_PAGE, "text/html")
+            else:
+                self.need_login()
+            return
+        remote = self.remote_for(path)
+        if remote:
+            self.proxy(remote, "GET")
+        elif path in ("/", "/index.html"):
+            self.send_file(PAGE, "text/html")
         elif path == "/api/local":
             self.send_json(local_state())
         elif path == "/api/state":
@@ -1003,7 +1088,18 @@ class Handler(BaseHTTPRequestHandler):
         if not self.origin_ok():
             self.send_json({"ok": False, "error": "Not allowed from that page"}, 403)
             return
+        path = self.path.split("?", 1)[0]
         try:
+            if path in ("/api/login", "/api/logout"):
+                self.login_post(path)
+                return
+            if not self.authed():
+                self.need_login()
+                return
+            remote = self.remote_for(path)
+            if remote:
+                self.proxy(remote, "POST")
+                return
             if self.path.startswith("/api/docs/"):
                 self.docs_post(self.path.split("?", 1)[0])
                 return
@@ -1162,7 +1258,9 @@ HEALTH = health.Health(LOCAL)
 CAN_REBOOT = can_reboot()
 PCIE = PcieCaps(CFG["pcie_caps"])
 AUTO = AutoRestart()
-TG = telegram_hub.Telegram(CFG["telegram"], transcribe=transcribe if CFG["dictate"] else None)
+TG = telegram_hub.Telegram(CFG["telegram"], transcribe=transcribe if CFG["dictate"] else None,
+                          reply_urls=CFG["telegram_reply_urls"])
+AUTH = hub_auth.Auth()
 FILES = None   # the Projects tab's files server, started below
 
 

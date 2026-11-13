@@ -79,9 +79,11 @@ def _with_links(text, rows):
 
 
 class Telegram:
-    def __init__(self, enabled, transcribe=None):
+    def __init__(self, enabled, transcribe=None, reply_urls=None):
         self.enabled = bool(enabled)
         self.transcribe = transcribe     # audio bytes -> text (aihub.transcribe), for voice messages
+        # where answers may go: only these apps on this PC (the hub config's "telegram_reply_urls", e.g. TTR)
+        self.reply_urls = [u for u in (reply_urls or []) if REPLY_URL.match(u)]
         self.lock = threading.RLock()
         self.wake = threading.Event()
         self.poll_error = ""
@@ -170,8 +172,8 @@ class Telegram:
         is a new message (use edit() to change the old one). reply_url: where answers to it go (see above)."""
         text = str(text or "").strip()
         reply_url = str(reply_url or "").strip()
-        if reply_url and not REPLY_URL.match(reply_url):
-            raise ValueError("reply_url must be an http address on this PC (127.0.0.1)")
+        if reply_url and not self.reply_ok(reply_url):
+            raise ValueError("reply_url must be one of this hub's telegram_reply_urls (an app on this PC, such as TTR)")
         if not text:
             raise ValueError("Nothing to send")
         if not self.enabled:
@@ -235,6 +237,9 @@ class Telegram:
             self._save_log()
         return entry
 
+    def reply_ok(self, url):
+        return bool(REPLY_URL.match(url)) and any(url.startswith(u) for u in self.reply_urls)
+
     # ---------------------------------------------------------------- setup (Telegram tab)
     def status(self):
         with self.lock:
@@ -243,7 +248,7 @@ class Telegram:
             live = has and (pair.get("until") or 0) > time.time()
             return {"enabled": self.enabled, "has_token": has, "bot": self.cfg.get("username") or "",
                     "chats": [{"id": c["id"], "name": c.get("name") or str(c["id"])} for c in self.cfg["chats"]],
-                    "pair_code": pair.get("code") if live else "", "pair_until": pair.get("until") if live else 0,
+                    "pairing": live, "pair_until": pair.get("until") if live else 0,
                     "error": self.poll_error, "refused": self.refused, "messages": self.log[-120:]}
 
     def setup(self, req):
@@ -287,7 +292,10 @@ class Telegram:
         if req.get("test"):
             self.send("✅ Test message from AI Hub. Notifications will arrive here.", source="AI Hub",
                       buttons=[[{"text": "Open AI Hub", "url": str(req.get("hub_url") or "")}]] if req.get("hub_url") else None)
-        return self.status()
+        out = self.status()
+        if req.get("pair"):   # only the page that asked for the code gets to see it
+            out["pair_code"] = (self.cfg.get("pair") or {}).get("code", "")
+        return out
 
     # ---------------------------------------------------------------- reading what comes in
     def _pair(self, chat, msg):
