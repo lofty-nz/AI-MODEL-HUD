@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Always-on-top panel listing the local AI containers and models, with start and stop buttons.
 
-Each Docker container is a row. Ollama's installed models sit under the ollama container,
-and ComfyUI gets an UNLOAD row while it holds a model in VRAM. The dot is green when a
-row is running or loaded, amber while it's starting or stopping, and grey when it's off.
-The numbers on the right are VRAM, then system RAM.
+Each Docker container is a row, named in plain English (~/.config/aimon/names.json) with what it's
+for underneath (~/.config/aimon/labels.json, ✎ to change) and its technical name after that.
+Ollama's installed models sit under the ollama container, and ComfyUI gets an UNLOAD row while it
+holds a model in VRAM. A blue name is a link to the web page where you use that model.
 
-The AUTO pills are placeholders for automatic mode, which isn't built yet: start a
-model when something asks for it, stop it when it has been idle.
+The status pill says OFF, ON, LOADED (in memory, idle) or BUSY (working right now: using the
+graphics card or the CPU, or Strata answering a chat). The numbers are VRAM, then system RAM.
+The header shows each graphics card's temperature and load, the CPU's, and VRAM and RAM.
+
+START on a model that needs most of the graphics card goes through the AI Hub's card keeper (the
+main PC), which stops whatever idle model is on the card first, and refuses while the card is busy.
 
 Drag to move, scroll to resize. Click the title for settings, right-click for the menu.
 """
@@ -15,8 +19,12 @@ import json
 import math
 import os
 import subprocess
+import sys
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 import cairo
 import gi
@@ -26,10 +34,20 @@ gi.require_version("Pango", "1.0")
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(1, os.path.expanduser("~/Documents/sysmon"))
+import card  # noqa: E402
 from aimon_core import (GIB, LABEL_IDEAS, LABEL_MAX, read_gpu, read_ram, read_rows, run,  # noqa: E402
                         serves_web_page, set_label, start_row, stop_row)
+try:
+    import sysmon   # CPU and GPU temperatures and load (~/Documents/sysmon)
+except ImportError:
+    sysmon = None
 
 CONFIG = os.path.expanduser("~/.config/aimon-gui/settings.json")
+HUB_CONFIG = os.path.expanduser("~/.config/aihub/config.json")   # the card keeper is on where this has "card"
+HUB_KEY = os.path.expanduser("~/.config/aihub/hub.key")
+STARTED_MARK = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "aimon-startup-load-done")
 DEFAULTS = {"refresh_s": 2.0, "scale": 1.0, "on_top": True, "x": None, "y": None,
             "startup_load": None,   # row key loaded when the panel starts, such as "ollama:qwen3:14b"
             "web": {},              # container name -> whether its port serves a web page, learned as they run
@@ -42,13 +60,14 @@ OPEN_WAIT_S = 180        # how long a just-started container gets to put its web
 STARTUP_WAIT_S = 300     # how long the startup load waits for Docker and Ollama after login
 
 # Panel layout at scale 1, in pixels.
-WIDTH = 400
+WIDTH = 460
 PAD = 14
-HEADER_H = 64
-ROW_H = 46
-SUB_H = 38
+TITLE_H = 36             # the title line; the readings (one line per pair of bars) go under it
+STAT_H = 25
+ROW_H = 50
+SUB_H = 44
 BOTTOM = 10
-BTN_W, AUTO_W, PILL_H = 62, 48, 24
+BTN_W, STATUS_W, PILL_H = 58, 66, 24
 HUD_H = 30               # mini HUD strip height at hud_scale 1
 HUD_ALPHA = 0.6          # its background is see-through
 HUD_MAX_NAMES = 5        # running rows named on the strip; the rest are counted
@@ -65,6 +84,7 @@ START_BTN = (0.13, 0.34, 0.55)
 STOP_BTN = (0.55, 0.19, 0.18)
 BUSY_BTN = (0.22, 0.24, 0.28)
 LINK = (0.45, 0.70, 0.98)
+WORKING = (0.95, 0.55, 0.13)   # the BUSY pill
 
 
 def load_settings():
@@ -87,7 +107,7 @@ def save_settings(s):
 
 
 class Monitor:
-    """Polls Docker, Ollama and the GPU on a background thread, and runs start and stop requests."""
+    """Polls Docker, Ollama, the GPU and the CPU on a background thread, and runs start and stop requests."""
 
     def __init__(self, settings, on_update):
         self.settings = settings
@@ -95,33 +115,95 @@ class Monitor:
         self.lock = threading.Lock()
         self.rows = []
         self.error = None
-        self.memory = {}    # "vram" / "ram" -> (used, total) bytes
-        self.pending = {}   # row key -> "starting", "stopping", "opening", or ("failed", message, time)
+        self.memory = {}    # "vram" / "ram" -> (used, total) bytes, "gpus" -> [{name, temp, util}], "cpu" -> {pct, temp}
+        self.pending = {}   # row key -> what's happening ("starting", a card keeper message...) or ("failed", message, time)
         self.wake = threading.Event()
+        self.hub = self._hub()
         threading.Thread(target=self._run, daemon=True).start()
-        if settings["startup_load"]:
+        if settings["startup_load"] and not os.path.exists(STARTED_MARK):
+            # Once per login: restarting the panel later mustn't start Strata again on top of whatever is loaded.
+            try:
+                open(STARTED_MARK, "w").close()
+            except OSError:
+                pass
             threading.Thread(target=self.load_at_startup, args=(settings["startup_load"],), daemon=True).start()
+
+    @staticmethod
+    def _hub():
+        """(port, key, card config) when this PC's AI Hub has the card keeper, else None."""
+        try:
+            with open(HUB_CONFIG) as f:
+                cfg = json.load(f)
+            if cfg.get("card") is None:
+                return None
+            with open(HUB_KEY) as f:
+                return int(cfg.get("port") or 8090), f.read().strip(), cfg["card"]
+        except (OSError, ValueError):
+            return None
 
     def act(self, row, starting):
         self.background(row["key"], "starting" if starting else "stopping",
-                        lambda: (start_row if starting else stop_row)(row))
+                        lambda: self.start(row) if starting else stop_row(row))
+
+    def start(self, row):
+        """Starts a row. One that needs most of the graphics card asks the card keeper, which makes room."""
+        if self.hub and card.is_user(row["key"], self.hub[2]):
+            self.claim(row)
+        else:
+            start_row(row)
+
+    def claim(self, row):
+        port, key, _ = self.hub
+        body = json.dumps({"want": row["key"], "who": "AI Model Monitor", "evict": True}).encode()
+        deadline = time.monotonic() + 600
+        while time.monotonic() < deadline:
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/api/local/card", body,
+                                         {"Content-Type": "application/json", "X-Hub-Key": key})
+            try:
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    res = json.load(r)
+            except urllib.error.HTTPError as e:
+                raise RuntimeError(f"AI Hub said {e.code}") from e
+            except (OSError, ValueError):
+                start_row(row)   # the hub isn't running: start it the old way
+                return
+            state, msg = res.get("state"), res.get("msg") or res.get("error") or ""
+            if state == "ready":
+                return
+            if state == "working":
+                self.pending[row["key"]] = msg
+                GLib.idle_add(self.on_update)
+                time.sleep(2)
+                continue
+            raise RuntimeError(("Not now: " if state == "busy" else "") + msg)
+        raise RuntimeError("took over 10 minutes")
+
+    def link(self, row):
+        return row_link(row)
 
     def open(self, row):
-        """Opens a row's web page, first starting the container that serves it if it's stopped."""
+        """Opens a row's web page. A page on this PC whose container is stopped is started first (through the
+        card keeper if it needs the card) and opened once it answers. Other PCs' pages (the server's Open WebUI)
+        open straight away; their own AI starts the model when you send a message."""
+        link = self.link(row)
+        if not link:
+            return
+        u = urllib.parse.urlparse(link)
+        if u.hostname not in ("127.0.0.1", "localhost") or not u.port:
+            open_uri(link)
+            return
+        host_name = row["name"] if row["kind"] == "docker" else row.get("web_host")
+
         def work():
-            host = self.find(f"docker:{row['web_host']}")
+            host = self.find(f"docker:{host_name}") if host_name else None
             if host and host["state"] == "off":
-                run(["docker", "start", row["web_host"]], timeout=120)
+                self.start(host)
             deadline = time.monotonic() + OPEN_WAIT_S
-            while (page := serves_web_page(row["web_port"])) is None and time.monotonic() < deadline:
+            while (page := serves_web_page(u.port)) is None and time.monotonic() < deadline:
                 time.sleep(1)
             if page is None:
-                raise RuntimeError(f"no answer on :{row['web_port']} after {OPEN_WAIT_S // 60} min")
-            if not page:
-                self.settings["web"][row["web_host"]] = False
-                GLib.idle_add(save_settings, self.settings)
-                raise RuntimeError(f":{row['web_port']} isn't a web page")
-            GLib.idle_add(open_uri, row["url"])
+                raise RuntimeError(f"no answer on :{u.port} after {OPEN_WAIT_S // 60} min")
+            GLib.idle_add(open_uri, link)
 
         self.background(row["key"], "opening", work)
 
@@ -154,6 +236,7 @@ class Monitor:
             row = next((r for r in rows if r["key"] == key), None)
             if row:
                 if row["state"] == "off":
+                    self.hub = self.hub or self._hub()
                     self.act(row, starting=True)
                 return
             if key.startswith("ollama@"):
@@ -170,6 +253,7 @@ class Monitor:
 
     def _run(self):
         web = self.settings["web"]
+        prev_cpu = sysmon.read_cpu_times() if sysmon else None
         while True:
             known = dict(web)
             try:
@@ -182,6 +266,15 @@ class Monitor:
             memory = {"ram": read_ram()}
             if vram:
                 memory["vram"] = vram
+            if sysmon:
+                try:
+                    cur = sysmon.read_cpu_times()
+                    memory["cpu"] = {"pct": sysmon.cpu_percent(prev_cpu, cur).get("cpu"), "temp": sysmon.read_cpu_temp()}
+                    prev_cpu = cur
+                    memory["gpus"] = [{"name": g.get("name") or "GPU", "temp": g.get("temp"), "util": g.get("util")}
+                                      for g in sysmon.read_gpus() or []]
+                except (OSError, ValueError, KeyError, TypeError):
+                    pass
             with self.lock:
                 self.rows, self.error, self.memory = rows, error, memory
             GLib.idle_add(self.on_update)
@@ -196,7 +289,8 @@ class Monitor:
         for r in rows:
             p = self.pending.get(r["key"])
             if isinstance(p, str):
-                r["state"], r["sub"], r["busy"] = "busy", f"{p.capitalize()}…", True
+                r["state"], r["busy"] = "busy", True
+                r["sub"] = p if p.endswith("…") else f"{p[:1].upper()}{p[1:]}…"
             elif p and now - p[2] < FAILED_SHOW_S:
                 r["sub"], r["failed"] = f"Failed: {p[1]}", True
         return rows, error, memory
@@ -213,15 +307,27 @@ def open_uri(url):
 
 def startup_choices(rows, current):
     """(key, label) for everything the panel can load at startup: containers and Ollama models."""
-    choices = [(r["key"], f"{r['name']}  ({'container' if r['kind'] == 'docker' else 'Ollama model'})")
+    choices = [(r["key"], f"{r.get('title') or r['name']}  ({r['name']})")
                for r in rows if r["kind"] in ("docker", "ollama")]
     if current and current not in {k for k, _ in choices}:   # e.g. an Ollama model while ollama is stopped
         choices.append((current, current.split(":", 1)[1]))
     return choices
 
 
+def row_link(row):
+    """The web page to use a row on: its "use" page from names.json, else a container's own web page.
+    Ollama models only get one from names.json (Open WebUI, where they can be picked)."""
+    if row.get("nolink"):
+        return None
+    return row.get("use") or (row.get("url") if row["kind"] == "docker" else None)
+
+
 def level_colour(frac):
     return RED if frac >= 0.9 else AMBER if frac >= 0.7 else GREEN
+
+
+def temp_colour(temp, warm, hot):
+    return MUTED if temp is None else RED if temp >= hot else AMBER if temp >= warm else GREEN
 
 
 def draw_text(cr, s, x, y, size, colour, bold=False, centred=True, max_w=None, right=False):
@@ -252,9 +358,36 @@ def rounded_rect(cr, x, y, w, h, r):
     cr.close_path()
 
 
-def panel_size(rows, scale):
+def stat_lines(memory):
+    """The header's readings, two to a line: [(left, right)], each a stat dict or None.
+    A stat: name, temp text + its colour, value text, bar fraction + colour."""
+    def load(name, temp, pct, word, warm, hot):
+        return {"name": name, "temp": f"{temp:.0f}°C" if temp is not None else "",
+                "temp_colour": temp_colour(temp, warm, hot), "value": f"{pct or 0:.0f}% {word}",
+                "frac": (pct or 0) / 100, "colour": LINK}
+
+    def mem(key):
+        if key not in memory:
+            return None
+        used, total = memory[key]
+        return {"name": key.upper(), "temp": "", "temp_colour": MUTED, "value": f"{used / GIB:.1f} / {total / GIB:.0f} GB",
+                "frac": used / total, "colour": level_colour(used / total)}
+
+    gpus, cpu = memory.get("gpus") or [], memory.get("cpu")
+    left = [load("GPU" if len(gpus) == 1 else f"GPU {g['name'].split()[-1]}", g["temp"], g["util"], "busy", 75, 85)
+            for g in gpus]
+    right = load("CPU", cpu.get("temp"), cpu.get("pct"), "load", 80, 90) if cpu else None
+    lines = []
+    if left or right:
+        lines.append((left[0] if left else None, right))
+        lines += [(g, None) for g in left[1:]]
+    lines.append((mem("vram"), mem("ram")))
+    return lines
+
+
+def panel_size(rows, scale, memory):
     body = sum(SUB_H if r["level"] else ROW_H for r in rows) if rows else ROW_H
-    return int(WIDTH * scale), int((HEADER_H + body + BOTTOM) * scale)
+    return int(WIDTH * scale), int((TITLE_H + STAT_H * len(stat_lines(memory)) + 4 + body + BOTTOM) * scale)
 
 
 def fmt_mem(vram, ram):
@@ -262,16 +395,19 @@ def fmt_mem(vram, ram):
     return "" if not vram and not ram else f"{parts[0]} · {parts[1]} GB"
 
 
-def draw_bar(cr, x, y, w, h, label, used_total):
-    used, total = used_total
-    draw_text(cr, label, x, y - h * 1.9, h * 2.2, MUTED, bold=True, centred=False)
-    draw_text(cr, f"{used / GIB:.1f} / {total / GIB:.0f} GB", x + w, y - h * 1.9, h * 2.2, TEXT, right=True)
+def draw_stat(cr, x, y, w, h, stat):
+    """A reading: name and temperature on the left, value on the right, a bar under them at y."""
+    ty = y - h * 1.9
+    nx = x + draw_text(cr, stat["name"], x, ty, h * 2.2, MUTED, bold=True, centred=False)
+    if stat["temp"]:
+        draw_text(cr, stat["temp"], nx + h * 1.2, ty, h * 2.3, stat["temp_colour"], bold=True, centred=False)
+    draw_text(cr, stat["value"], x + w, ty, h * 2.2, TEXT, right=True)
     cr.set_source_rgb(*TRACK)
     rounded_rect(cr, x, y, w, h, h / 2)
     cr.fill()
-    frac = min(1, used / total)
+    frac = min(1, max(0, stat["frac"]))
     if frac > 0.01:
-        cr.set_source_rgb(*level_colour(frac))
+        cr.set_source_rgb(*stat["colour"])
         rounded_rect(cr, x, y, max(h, w * frac), h, h / 2)
         cr.fill()
 
@@ -303,9 +439,14 @@ def draw_tag(cr, s, x, cy, size, max_w=None):
     return w + 2 * pad
 
 
+def blink():
+    """True every other half second: the BUSY pill pulses so working models catch the eye."""
+    return int(time.time() * 2) % 2 == 0
+
+
 def draw_mini(cr, k, rows, memory, pressed):
-    """The mini HUD: what's running or loaded, then VRAM and RAM. Returns its width and click targets.
-    Drawing on SCRATCH just measures it."""
+    """The mini HUD: what's running or loaded (BUSY ones in orange), then VRAM, RAM, the cards and the CPU.
+    Returns its width and click targets. Drawing on SCRATCH just measures it."""
     h = HUD_H * k
     cy = h / 2
     bs = h - 10 * k
@@ -313,26 +454,46 @@ def draw_mini(cr, k, rows, memory, pressed):
     draw_expand_button(cr, x, cy - bs / 2, bs, pressed == "mini")
     targets = [(x, cy - bs / 2, bs, bs, "mini")]
     x += bs + 10 * k
-    running = [r for r in rows if r["state"] in ("on", "busy")]
+    running = [r for r in rows if status_of(r)[0] in ("BUSY", "LOADED", "LOADING", "WAIT")
+               and not (r["kind"] == "docker" and "ollama" in r.get("image", ""))]
+    running.sort(key=lambda r: not r.get("work"))   # working ones first
     for r in running[:HUD_MAX_NAMES]:
-        cr.set_source_rgb(*(GREEN if r["state"] == "on" else AMBER))
+        working = bool(r.get("work"))
+        cr.set_source_rgb(*(WORKING if working else GREEN if r["state"] == "on" else AMBER))
         cr.arc(x + 3.5 * k, cy, 3.5 * k, 0, 2 * math.pi)
         cr.fill()
         x += 11 * k
-        x += draw_text(cr, r["name"], x, cy, (12 if r["level"] == 0 else 11) * k, TEXT if r["level"] == 0 else MUTED,
-                       bold=r["level"] == 0, centred=False) + 11 * k
-        if r.get("label"):
-            x += draw_tag(cr, r["label"], x - 5 * k, cy, 10 * k, max_w=140 * k) + 6 * k
+        x += draw_text(cr, r.get("title") or r["name"], x, cy, (12 if r["level"] == 0 else 11) * k,
+                       WORKING if working else TEXT if r["level"] == 0 else MUTED,
+                       bold=r["level"] == 0 or working, centred=False) + 6 * k
+        if working:
+            x += draw_text(cr, "BUSY", x, cy, 9 * k, WORKING, bold=True, centred=False) + 6 * k
+        x += 5 * k
     if len(running) > HUD_MAX_NAMES:
         x += draw_text(cr, f"+{len(running) - HUD_MAX_NAMES}", x, cy, 11 * k, MUTED, bold=True, centred=False) + 11 * k
     if not running:
-        x += draw_text(cr, "nothing running", x, cy, 11 * k, MUTED, centred=False) + 11 * k
+        x += draw_text(cr, "no models loaded", x, cy, 11 * k, MUTED, centred=False) + 11 * k
     for key in ("vram", "ram"):
         if key in memory:
             used, total = memory[key]
             x += draw_text(cr, key.upper(), x, cy, 10 * k, MUTED, bold=True, centred=False) + 4 * k
             x += draw_text(cr, f"{used / GIB:.1f}/{total / GIB:.0f}", x, cy, 12 * k, level_colour(used / total),
                            bold=True, centred=False) + 11 * k
+    gpus = memory.get("gpus") or []
+    for g in gpus:
+        x += draw_text(cr, "GPU" if len(gpus) == 1 else g["name"].split()[-1], x, cy, 10 * k, MUTED, bold=True,
+                       centred=False) + 4 * k
+        if g["temp"] is not None:
+            x += draw_text(cr, f"{g['temp']:.0f}°", x, cy, 12 * k, temp_colour(g["temp"], 75, 85), bold=True,
+                           centred=False) + 4 * k
+        x += draw_text(cr, f"{g['util'] or 0:.0f}%", x, cy, 11 * k, TEXT, centred=False) + 11 * k
+    cpu = memory.get("cpu")
+    if cpu:
+        x += draw_text(cr, "CPU", x, cy, 10 * k, MUTED, bold=True, centred=False) + 4 * k
+        if cpu.get("temp") is not None:
+            x += draw_text(cr, f"{cpu['temp']:.0f}°", x, cy, 12 * k, temp_colour(cpu["temp"], 80, 90), bold=True,
+                           centred=False) + 4 * k
+        x += draw_text(cr, f"{cpu.get('pct') or 0:.0f}%", x, cy, 11 * k, TEXT, centred=False) + 11 * k
     return int(x), targets
 
 
@@ -353,6 +514,32 @@ def button_label(row):
     if row["kind"] == "comfy":
         return "UNLOAD"
     return "START" if row["state"] == "off" else "STOP"
+
+
+def status_of(row):
+    """(word, colour, filled) for the status pill: what a row is doing, at a glance."""
+    if row.get("busy"):
+        return "WAIT", AMBER, False            # the panel is starting / stopping / opening it
+    if row["state"] == "busy":
+        return "LOADING", AMBER, False         # a container still starting up by itself
+    if row["state"] == "off":
+        return "OFF", TRACK, False
+    if row.get("work"):
+        return "BUSY", WORKING if blink() else tuple(c * 0.72 for c in WORKING), True
+    if row["kind"] in ("ollama", "comfy") or (row.get("vram") or 0) > 0.25 * GIB or (row.get("ram") or 0) > 0.75 * GIB:
+        return "LOADED", GREEN, False          # a model in memory (on the card or in RAM), ready, not doing anything
+    return "ON", GREEN, False
+
+
+def status_tip(row):
+    word = status_of(row)[0]
+    mem = fmt_mem(row.get("vram"), row.get("ram"))
+    return {"WAIT": f"{row['sub']}",
+            "LOADING": "Starting up (loading its model)",
+            "OFF": "Not running",
+            "BUSY": f"Working right now: {row.get('work')}",
+            "LOADED": f"Loaded and ready, not doing anything right now" + (f"\nVRAM · RAM: {mem}" if mem else ""),
+            "ON": "Running, not doing anything right now"}[word]
 
 
 def draw_panel(cr, w, h, scale, rows, error, memory, pressed):
@@ -382,29 +569,37 @@ def draw_panel(cr, w, h, scale, rows, error, memory, pressed):
     hx, hw = wx - 8 * k - 44 * k, 44 * k
     draw_pill(cr, hx, oy, hw, oh, "HUD", tuple(c * 0.8 for c in TRACK) if pressed == "hud" else TRACK, MUTED)
     targets.append((hx, oy, hw, oh, "hud"))
-    bar_w = (w - 3 * PAD * k) / 2
-    for i, key in enumerate(("vram", "ram")):
-        if key in memory:
-            draw_bar(cr, PAD * k + i * (bar_w + PAD * k), 50 * k, bar_w, 5 * k, key.upper(), memory[key])
+    col_w = (w - 3 * PAD * k) / 2
+    y = TITLE_H * k
+    for left, right in stat_lines(memory):
+        y += STAT_H * k
+        for i, stat in enumerate((left, right)):
+            if stat:
+                draw_stat(cr, PAD * k + i * (col_w + PAD * k), y - 6 * k, col_w, 5 * k, stat)
+    y += 4 * k
+    header_end = y
 
-    y = HEADER_H * k
     if not rows:
         draw_text(cr, error or "No containers yet", w / 2, y + ROW_H * k / 2, 12 * k, MUTED, max_w=w - 2 * PAD * k)
     for row in rows:
-        rh = (SUB_H if row["level"] else ROW_H) * k
+        sub_row = bool(row["level"])
+        rh = (SUB_H if sub_row else ROW_H) * k
         cy = y + rh / 2
-        if row["level"] == 0 and y > HEADER_H * k:
+        if not sub_row and y > header_end:
             cr.set_source_rgb(*TRACK)
             cr.rectangle(PAD * k, y, w - 2 * PAD * k, max(1, k))
             cr.fill()
         indent = (PAD + 18 * row["level"]) * k
-        dot = {"on": GREEN, "busy": AMBER}.get(row["state"], RED if row.get("failed") else MUTED)
+        word, scolour, filled = status_of(row)
+        dot = (scolour if word in ("BUSY", "WAIT", "LOADING") else GREEN if row["state"] == "on"
+               else RED if row.get("failed") else MUTED)
         cr.set_source_rgb(*dot)
-        cr.arc(indent + 5 * k, cy, (4 if row["level"] else 5) * k, 0, 2 * math.pi)
+        cr.arc(indent + 5 * k, cy - 8 * k, (4 if sub_row else 5) * k, 0, 2 * math.pi)
         cr.fill()
 
+        # right: status pill, then the START / STOP button
         bx = w - PAD * k - BTN_W * k
-        ax = bx - 8 * k - AUTO_W * k
+        sx = bx - 6 * k - STATUS_W * k
         py = cy - PILL_H * k / 2
         label = button_label(row)
         colour = BUSY_BTN if row.get("busy") else START_BTN if label == "START" else STOP_BTN
@@ -412,30 +607,37 @@ def draw_panel(cr, w, h, scale, rows, error, memory, pressed):
             colour = tuple(c * 0.8 for c in colour)
         draw_pill(cr, bx, py, BTN_W * k, PILL_H * k, label, colour)
         targets.append((bx, py, BTN_W * k, PILL_H * k, ("toggle", row["key"])))
-        draw_pill(cr, ax, py, AUTO_W * k, PILL_H * k, "AUTO", TRACK, MUTED, outline=True)
-        targets.append((ax, py, AUTO_W * k, PILL_H * k, ("auto", row["key"])))
+        if filled:
+            draw_pill(cr, sx, py, STATUS_W * k, PILL_H * k, word, scolour, BG)
+        else:
+            draw_pill(cr, sx, py, STATUS_W * k, PILL_H * k, word, scolour,
+                      MUTED if word in ("OFF", "ON") else scolour, outline=True)
+        targets.append((sx, py, STATUS_W * k, PILL_H * k, ("status", row["key"])))
 
+        # top line: plain-English name (a link to where it's used), ✎, then VRAM · RAM
+        top, bottom = cy - 8 * k, cy + 10 * k
         mem = fmt_mem(row["vram"], row["ram"])
-        mem_x = ax - 10 * k
-        if mem:
-            draw_text(cr, mem, mem_x, cy, 11 * k, TEXT, right=True)
+        mem_w = draw_text(cr, mem, sx - 8 * k, top, 11 * k, TEXT, right=True) if mem else 0
         name_x = indent + 16 * k
-        name_w = mem_x - name_x - (80 if mem else 0) * k
-        size = 13 if row["level"] == 0 else 12
-        url = row.get("url")
-        tw = draw_text(cr, row["name"] + (" ↗" if url else ""), name_x, cy - 8 * k, size * k, LINK if url else TEXT,
-                       bold=row["level"] == 0, centred=False, max_w=name_w - 20 * k)
-        if url:
-            targets.append((name_x, cy - 17 * k, tw, 18 * k, ("open", row["key"])))
-        # ✎ after the name: write what this row is for
+        link = row_link(row)
+        size = 12 if sub_row else 13
+        tw = draw_text(cr, (row.get("title") or row["name"]) + (" ↗" if link else ""), name_x, top, size * k,
+                       LINK if link else TEXT, bold=True, centred=False,
+                       max_w=max(40 * k, sx - 8 * k - mem_w - 34 * k - name_x))
+        if link:
+            targets.append((name_x, top - 9 * k, tw, 18 * k, ("open", row["key"])))
         pen_x = name_x + tw + 5 * k
-        draw_text(cr, "✎", pen_x, cy - 8 * k, 12 * k, TEXT if pressed == ("label", row["key"]) else MUTED, centred=False)
-        targets.append((pen_x - 4 * k, cy - 18 * k, 20 * k, 20 * k, ("label", row["key"])))
-        sub_x, sub_w = name_x, mem_x - name_x
+        draw_text(cr, "✎", pen_x, top, 12 * k, TEXT if pressed == ("label", row["key"]) else MUTED, centred=False)
+        targets.append((pen_x - 4 * k, top - 10 * k, 20 * k, 20 * k, ("label", row["key"])))
+
+        # bottom line: what it's for, then the technical name and how it's doing
+        sub_x, sub_w = name_x, sx - 8 * k - name_x
         if row.get("label"):
-            tag_w = draw_tag(cr, row["label"], name_x - 2 * k, cy + 9 * k, 10 * k, max_w=sub_w * 0.72)
+            tag_w = draw_tag(cr, row["label"], name_x - 2 * k, bottom, 10 * k, max_w=sub_w * 0.84)
             sub_x, sub_w = sub_x + tag_w + 4 * k, sub_w - tag_w - 4 * k
-        draw_text(cr, row["sub"], sub_x, cy + 9 * k, 10 * k, RED if row.get("failed") else MUTED, centred=False,
+        tech = " · ".join(t for t in ((row["name"] if row.get("title") not in (None, row["name"]) else ""),
+                                      row.get("sub") or "") if t)
+        draw_text(cr, tech, sub_x, bottom, 10 * k, RED if row.get("failed") else MUTED, centred=False,
                   max_w=max(sub_w, 10 * k))
         targets.append((0, y, w, rh, ("row", row["key"])))
         y += rh
@@ -466,40 +668,40 @@ def set_autostart(on):
                 "X-GNOME-Autostart-Delay=5\n")   # let the compositor start first, for clean round corners
 
 
-HELP = """<b>Using the panel</b>
-• Each <b>container</b> is a row. <b>START</b> and <b>STOP</b> run <tt>docker start</tt> and <tt>docker stop</tt>.
-• <b>Ollama models</b> are listed under the ollama container while it runs. START loads a model into memory and keeps it there until you press STOP. Something else using the model, such as Open WebUI, sets its own timer, after which Ollama unloads the model by itself.
-• <b>ComfyUI</b> loads its image models when a workflow runs. While they're in VRAM, an <b>Image models</b> row appears. UNLOAD frees them and leaves the container running.
-• Starting <b>Strata</b> loads its whole model, about 47 GB across RAM and VRAM. Stop the other models first.
+HELP = """<b>Reading a row</b>
+• The <b>name</b> is in plain English (Strata, Qwen3.5 vision, FLUX pictures…). The grey tag under it says what it's for, and after that comes its technical name and how it's running.
+• The <b>status pill</b> says what it's doing, at a glance:
+   <b>OFF</b> not running · <b>ON</b> running · <span foreground="#40ba4f"><b>LOADED</b></span> in memory and ready, doing nothing · <span foreground="#f28c21"><b>BUSY</b></span> (pulsing) working right now · <b>LOADING</b> starting up · <b>WAIT</b> the panel is starting or stopping it.
+   BUSY means its programs are using the graphics card (over 10%) or the CPU, or Strata is answering a chat. Hover over the pill to see which.
+• The numbers are <b>VRAM · RAM</b> in GB that row holds.
+• The dot is green when running, orange while busy, amber while starting or stopping, grey when off, and red when a start or stop failed (the reason shows under the name for 30 seconds).
 
-<b>Web pages</b>
-A name in <span foreground="#73b3fa">blue with ↗</span> is a link. A container's link opens its web page: Open WebUI, ComfyUI or Strata's chat. An Ollama model's link opens Open WebUI with that model picked. If the container behind the page is stopped, the link starts it and opens the page once it's ready, which can take a few minutes for Strata.
-Ollama's own port is only an API for other apps, so it has no link.
+<b>Using a model</b>
+A name in <span foreground="#73b3fa">blue with ↗</span> opens the web page where you use it: Open WebUI with that model picked (Strata, Qwen3.5 vision, FLUX pictures, qwen3:8b, Quick pictures), or the model's own page (Jev, ACE-Step music, Chatterbox, Jellyfin). Open WebUI starts the model itself when you send a message. A page on this PC whose container is stopped is started first and opens once it's ready. Hover over a name for the address.
+
+<b>START and STOP</b>
+• <b>START</b> starts a container or loads an Ollama model. On the main PC, the big models share one graphics card (Strata, Jev, FLUX, ACE-Step, Qwen3.5…), so START asks the AI Hub's <b>card keeper</b>: it stops whatever idle model is on the card first, then starts this one. If the card is busy (a chat being answered, a picture being drawn, a game), it says "Not now" and stops nothing.
+• <b>STOP</b> stops a container or unloads a model. ComfyUI's <b>Image models</b> row has <b>UNLOAD</b>, which frees its models and leaves ComfyUI running.
+
+<b>The readings at the top</b>
+Each graphics card's temperature and how busy it is, the CPU's temperature and load, then the whole machine's VRAM and RAM. Temperatures are green, then amber when warm (card 75°C, CPU 80°C) and red when hot (card 85°C, CPU 90°C).
+
+<b>What each one is for</b>
+Click the <b>✎</b> next to a name to change its grey tag (empty removes it). The AI Hub page shows the same tags. The plain-English names and the web pages come from <tt>~/.config/aimon/names.json</tt>.
 
 <b>AI Hub web page</b>
-<b>WEB ↗</b> opens the AI Hub in your browser. It shows the same rows as this panel for both PCs, plus GPU and CPU temperatures, quick links, a Wake button for the main PC and the docs about the whole setup. It works from a phone on the home Wi-Fi too.
+<b>WEB ↗</b> opens the AI Hub: both PCs' rows, temperatures, quick links, a Wake button for the main PC and the docs.
 
 <b>Startup</b>
 Click <b>OPTIONS</b> (or the title) for these settings.
 • <b>Start AI Model Monitor when I log in</b> opens the panel each time you log in.
-• <b>Load at startup</b> loads one container or Ollama model each time the panel opens. For an Ollama model it starts the ollama container first if needed. Turn on both to have the model ready after every restart.
-
-<b>Reading a row</b>
-The dot is <b>green</b> when the row is running or loaded, <b>amber</b> while it's starting or stopping, and <b>grey</b> when it's off. It turns <b>red</b> when a start or stop fails, and the reason shows under the name for 30 seconds.
-The numbers on the right are <b>VRAM · RAM</b> in GB. A container's RAM is what its programs have allocated. Cached model files are left out, since the kernel drops them when memory runs short.
-The bars at the top are the whole machine's VRAM and RAM.
-
-<b>What each one is for</b>
-The grey tag under a name says what that row is for, such as <i>quick chat</i> or <i>text to image</i>. Click the <b>✎</b> next to the name to write or change it (empty removes it). The AI Hub page shows the same tags and has its own ✎, and a change in either place shows in both.
-
-<b>AUTO (coming soon)</b>
-Auto mode will start a model when an app asks for it and stop it once it has been idle, so you won't need the buttons.
+• <b>Load at startup</b> loads one container or Ollama model once after you log in (through the card keeper). Opening the panel again later doesn't load it again.
 
 <b>Mini HUD</b>
-<b>HUD</b> (top of the panel) shrinks it to one see-through line: what's running or loaded, then VRAM and RAM. Click the square button on its left to get the full panel back. Scroll over the mini HUD to resize it. It remembers its own spot on screen.
+<b>HUD</b> shrinks the panel to one see-through line: what's running (BUSY ones in orange first), VRAM, RAM, the card and CPU temperatures and load. The square button on its left brings the full panel back. Scroll over it to resize.
 
 <b>Moving and sizing</b>
-Drag the panel to move it and scroll over it to resize. Right-click to open a container's web page, unload all models, or quit."""
+Drag the panel to move it and scroll over it to resize. Right-click for each model's web page, unload all models, or quit."""
 
 
 class SettingsDialog(Gtk.Dialog):
@@ -602,7 +804,7 @@ class App(Gtk.Window):
         self.connect("configure-event", self.on_configure)
         self.connect("destroy", self.on_quit)
         self.on_update()
-        GLib.timeout_add_seconds(1, lambda: self.queue_draw() or True)   # the clock and failure notes
+        GLib.timeout_add(500, lambda: self.queue_draw() or True)   # the clock, failure notes and the BUSY pulse
 
     def on_update(self):
         """Fits the window to the rows (or the mini HUD to its line), then redraws."""
@@ -612,7 +814,7 @@ class App(Gtk.Window):
             k = s["hud_scale"]
             size = (draw_mini(SCRATCH, k, rows, memory, None)[0], int(HUD_H * k))
         else:
-            size = panel_size(rows, s["scale"])
+            size = panel_size(rows, s["scale"], memory)
         if size != self.size:
             self.size = size
             self.set_size_request(*size)
@@ -687,24 +889,29 @@ class App(Gtk.Window):
             return True
         if not target:
             return False
-        if target[0] == "auto":
-            tooltip.set_text("Auto mode is coming soon: start this when an app asks for it, stop it when idle")
-            return True
         row = self.row(target[1])
         if not row:
             return False
+        title = row.get("title") or row["name"]
+        if target[0] == "status":
+            tooltip.set_text(f"{title}: {status_tip(row)}")
+            return True
         if target[0] == "label":
-            tooltip.set_text(f"{'Change' if row.get('label') else 'Write'} what {row['name']} is for\n"
+            tooltip.set_text(f"{'Change' if row.get('label') else 'Write'} what {title} is for\n"
                              "(shows here and on the AI Hub)")
             return True
         if target[0] == "open":
-            host = self.row(f"docker:{row['web_host']}")
-            tooltip.set_text(f"Open {row['url']}" + (f"\nStarts {row['web_host']} first" if host and
-                                                    host["state"] == "off" else ""))
+            link = self.monitor.link(row)
+            local = urllib.parse.urlparse(link).hostname in ("127.0.0.1", "localhost")
+            host = self.row(f"docker:{row['name']}") if row["kind"] == "docker" else None
+            tooltip.set_text(f"Use {title}: {link}" + ("\nStarts it first" if local and host and host["state"] == "off"
+                                                        else "" if local else
+                                                        "\nThe model starts by itself when you send a message"))
             return True
         if not row.get("tip"):
             return False
-        tooltip.set_text(row["tip"] + ("\n\nVRAM · RAM in GB" if row["vram"] or row["ram"] else ""))
+        tooltip.set_text(f"{title}" + (f" — {row['label']}" if row.get("label") else "") + "\n" + row["tip"]
+                         + ("\n\nVRAM · RAM in GB" if row["vram"] or row["ram"] else ""))
         return True
 
     def on_press(self, _, event):
@@ -768,8 +975,9 @@ class App(Gtk.Window):
         menu.append(item)
         menu.append(Gtk.SeparatorMenuItem())
         for r in rows:
-            if r.get("url") and r["kind"] == "docker":
-                item = Gtk.MenuItem(label=f"Open {r['name']}  ·  {r['url']}")
+            link = self.monitor.link(r)
+            if link and (r.get("use") or r["kind"] == "docker"):
+                item = Gtk.MenuItem(label=f"Use {r.get('title') or r['name']}  ·  {link}")
                 item.connect("activate", lambda _, row=r: self.monitor.open(row))
                 menu.append(item)
         if menu.get_children():

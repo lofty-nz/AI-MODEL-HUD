@@ -46,6 +46,13 @@ DEFAULTS = {
 FAILED_SHOW_S = 30   # a failed claim is reported to the next ask for the same thing, for this long
 
 
+def is_user(key, cfg=None):
+    """Whether row `key` needs most of the card (so it goes through the keeper). cfg = the hub's "card" config."""
+    cfg = {**DEFAULTS, **(cfg or {})}
+    return (any(fnmatch.fnmatchcase(key, p) for p in cfg["users"])
+            and not any(fnmatch.fnmatchcase(key, p) for p in cfg["ignore"]))
+
+
 class Keeper:
     def __init__(self, local, cfg):
         self.local = local
@@ -61,14 +68,13 @@ class Keeper:
     # ---- what's on the card ---------------------------------------------------------------------
 
     def is_user(self, key):
-        return (any(fnmatch.fnmatchcase(key, p) for p in self.cfg["users"])
-                and not any(fnmatch.fnmatchcase(key, p) for p in self.cfg["ignore"]))
+        return is_user(key, self.cfg)
 
     def name(self, key, rows=None):
         if key in self.cfg["names"]:
             return self.cfg["names"][key]
         row = (rows or {}).get(key)
-        return row["name"] if row else key.split(":", 1)[-1]
+        return (row.get("title") or row["name"]) if row else key.split(":", 1)[-1]
 
     def _sample(self):
         while True:

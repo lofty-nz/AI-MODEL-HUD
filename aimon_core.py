@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -14,6 +15,12 @@ OLLAMA = "http://127.0.0.1:11434"
 COMFY = "http://127.0.0.1:8188"
 MIB, GIB = 1024 ** 2, 1024 ** 3
 COMFY_LOADED = GIB       # ComfyUI's CUDA context alone takes a few hundred MB; above 1 GB it has a model loaded
+
+# Plain-English names and where to use each row, by row key: {"title": "Qwen3.5 vision", "use": "<web page>"}.
+# One file per PC (the same container name means different things on each PC), written by hand.
+NAMES = os.path.expanduser("~/.config/aimon/names.json")
+WORK_GPU = 10    # % of a graphics card a container's programs use that counts as working
+WORK_CPU = 0.8   # CPU cores a container uses (averaged since the last reading) that count as working
 
 # What each row is for ("quick chat", "text to image"), by row key. One file per PC, shared by the
 # panel and the AI Hub, so a ✎ change in either shows in both.
@@ -129,6 +136,64 @@ def container_ram(cid):
         return None
 
 
+def read_names():
+    try:
+        with open(NAMES) as f:
+            names = json.load(f)
+        return names if isinstance(names, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def pid_container(pid):
+    """The Docker container id a process belongs to, or None."""
+    try:
+        with open(f"/proc/{pid}/cgroup") as f:
+            m = re.search(r"docker-([0-9a-f]{64})\.scope", f.read())
+        return m and m[1]
+    except OSError:
+        return None
+
+
+def read_gpu_work():
+    """{container id: % of a card its programs are using right now} from nvidia-smi pmon (fast, ~0.05 s)."""
+    try:
+        out = run(["nvidia-smi", "pmon", "-c", "1", "-s", "u"], 5)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        return {}
+    per = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if line.startswith("#") or len(parts) < 4 or parts[3] == "-":
+            continue
+        try:
+            sm = float(parts[3])
+        except ValueError:
+            continue
+        cid = pid_container(parts[1])
+        if cid:
+            per[cid] = max(per.get(cid, 0), sm)
+    return per
+
+
+_cpu_seen = {}   # container id -> (time, CPU microseconds used so far)
+
+
+def container_cpu(cid):
+    """CPU cores a container used on average since the last call (None the first time)."""
+    try:
+        with open(f"/sys/fs/cgroup/system.slice/docker-{cid}.scope/cpu.stat") as f:
+            usage = int(f.readline().split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    now = time.monotonic()
+    prev = _cpu_seen.get(cid)
+    _cpu_seen[cid] = (now, usage)
+    if not prev or now - prev[0] < 0.5:
+        return None
+    return (usage - prev[1]) / 1e6 / (now - prev[0])
+
+
 def read_gpu():
     """(used, total) VRAM in bytes over all cards, or None without nvidia-smi, and the VRAM each container holds."""
     try:
@@ -217,6 +282,7 @@ def read_rows(web):
     checked and added; a stopped one that has never been checked gets a link, in case it does."""
     containers = read_containers()
     _, gpu_per = read_gpu()
+    gpu_work = read_gpu_work()
     for c in containers:
         if c["state"] == "running" and c["port"] and c["name"] not in web:
             page = serves_web_page(c["port"])
@@ -238,25 +304,40 @@ def read_rows(web):
             rows[-1].update(url=f"http://127.0.0.1:{c['port']}/", web_host=c["name"], web_port=c["port"])
         if not on:
             continue
+        # Working right now? Its programs are using the card or the CPU (Strata says so itself, below).
+        sm, cpu = gpu_work.get(c["id"], 0), container_cpu(c["id"])
+        work = (f"using the graphics card ({sm:.0f}%)" if sm >= WORK_GPU else
+                f"using the CPU ({cpu:.1f} cores)" if cpu is not None and cpu >= WORK_CPU else None)
+        rows[-1]["work"] = work
         if "strata" in c["image"] and c["port"] and not c["starting"]:
             st = strata_status(c["port"])
             if st:
                 rows[-1]["strata"] = st
                 if st["busy"] or st["queued"]:
+                    rows[-1]["work"] = f"answering a chat ({st['phase'] or 'working'})" + (
+                        f", {st['queued']} more waiting" if st["queued"] else "")
                     rows[-1]["sub"] = (f"busy answering ({st['phase'] or 'working'})"
                                        + (f" · {st['queued']} waiting" if st["queued"] else "") + f" · :{c['port']}")
         if "ollama" in c["image"]:
             try:
-                rows += ollama_rows(chat, c)
+                models = ollama_rows(chat, c)
             except (OSError, ValueError, KeyError, TypeError):
-                pass   # still starting up
+                models = []   # still starting up
+            for m in models:   # a loaded model is working when its Ollama is
+                m["work"] = work if m["state"] == "on" else None
+            rows += models
         elif "comfyui" in c["image"] and vram and vram > COMFY_LOADED:
             rows.append({"key": "comfy", "kind": "comfy", "name": "Image models", "sub": "loaded in VRAM",
                          "state": "on", "vram": vram, "ram": None, "level": 1,
                          "tip": "ComfyUI loads models when a workflow runs.\nUNLOAD frees them; the container keeps running."})
-    labels = read_labels()
+    labels, names = read_labels(), read_names()
     for r in rows:
         r["label"] = labels.get(r["key"], "")
+        named = names.get(r["key"]) if isinstance(names.get(r["key"]), dict) else {}
+        r["title"] = str(named.get("title") or r["name"])
+        use = str(named.get("use") or "")
+        r["use"] = use if use and use != "none" else None   # the web page to use it on (Open WebUI, its own page)
+        r["nolink"] = use == "none"                          # a helper with nothing to use it on
     return rows
 
 
