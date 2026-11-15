@@ -559,8 +559,65 @@ class Doors:
         for name, c in data["containers"].items():
             c["running"] = running.get(name)
             c["wired"] = wired.get(name, False)
+        recent, seen = [], set()
+        for e in reversed(data.get("log", [])):          # folders opened lately, newest first
+            p = e.get("path")
+            if e.get("event") == "open" and p and p not in seen and os.path.isdir(p):
+                seen.add(p)
+                recent.append(p)
+        data["recent"] = recent[:6]
         data["available"] = True
         return data
+
+    def browse(self, req):
+        """The folders inside one folder, for File access's folder browser, with whether each may be shared
+        (aidoor checks again when a door opens; this only saves choosing one it would refuse)."""
+        data = self.list()
+        roots = [os.path.realpath(r) for r in data.get("allow_roots", []) if os.path.isdir(r)]
+        deny = data.get("deny", [])
+        if not roots:
+            raise ValueError("No folders can be shared on this PC")
+        under = lambda p, r: p == r or p.startswith(r.rstrip("/") + "/")
+        path = os.path.realpath(str(req.get("path") or roots[0]))
+        root = next((r for r in roots if under(path, r)), None)
+        if not root:
+            raise ValueError(f"Only folders inside {', '.join(roots)} can be shared")
+        if any(part.startswith(".") for part in path[len(root):].split("/")):
+            raise ValueError("Hidden folders can't be shared")
+
+        def why_not(p):
+            if p in roots:
+                return "The whole of this folder can't be shared. Open one inside it."
+            if any(under(p, d) for d in deny):
+                return "Holds other programs' keys or data, so it can't be shared."
+            inside = sorted((d[len(p) + 1:] for d in deny if d.startswith(p.rstrip("/") + "/")), key=len)
+            if inside:
+                more = f" and {len(inside) - 1} more" if len(inside) > 1 else ""
+                return (f"Contains {inside[0]}{more}, which hold{'s' if not more else ''} other programs' keys or data. "
+                        "Open it and choose a folder further in.")
+            return ""
+        if any(under(path, d) for d in deny):
+            raise ValueError("That folder holds other programs' keys or data")
+        dirs, files = [], 0
+        try:
+            with os.scandir(path) as it:
+                for e in it:
+                    if e.name.startswith("."):
+                        continue
+                    try:
+                        if e.is_dir(follow_symlinks=False):
+                            full = os.path.join(path, e.name)
+                            dirs.append({"name": e.name, "path": full, "why": why_not(full),
+                                         "closed": any(under(full, d) for d in deny)})
+                        elif e.is_file(follow_symlinks=False):
+                            files += 1
+                    except OSError:
+                        continue
+        except OSError as e:
+            raise ValueError(f"Can't open {path}: {e.strerror or e}")
+        dirs.sort(key=lambda d: d["name"].lower())
+        return {"path": path, "parent": None if path in roots else os.path.dirname(path), "roots": roots,
+                "why": why_not(path), "dirs": dirs[:400], "more": max(0, len(dirs) - 400), "files": files}
 
     @staticmethod
     def wired(names, door_root):
@@ -594,7 +651,7 @@ class Doors:
         if c and not c["wired"]:
             raise ValueError(f"{c.get('label') or name} can't see doors yet: its container has no /doors folder. "
                              f"Add  - {known['door_root']}/{name}:/doors:ro,rslave  to its volumes and recreate it once.")
-        args = ["open", name, str(req.get("folder") or ""), str(req.get("mode") or "")]
+        args = ["open", name, str(req.get("path") or req.get("folder") or ""), str(req.get("mode") or "")]
         if until:
             args += ["--until", until]
         with self.lock:
@@ -1164,6 +1221,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "message": DOORS.open(req, by)})
         elif what == "close":
             self.send_json({"ok": True, "message": DOORS.close(req, by)})
+        elif what == "browse":
+            self.send_json({"ok": True, **DOORS.browse(req)})
         else:
             self.send_json({"ok": True, "text": DOORS.peek(req)})
 
@@ -1365,8 +1424,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/telegram/setup":
                 self.send_json({"ok": True, **TG.setup(req)})
                 return
-            if path in ("/api/doors/open", "/api/doors/close", "/api/doors/peek",
-                        "/api/local/doors/open", "/api/local/doors/close", "/api/local/doors/peek"):
+            if path in ("/api/doors/open", "/api/doors/close", "/api/doors/peek", "/api/doors/browse",
+                        "/api/local/doors/open", "/api/local/doors/close", "/api/local/doors/peek", "/api/local/doors/browse"):
                 self.doors_post(path, req)
                 return
             if self.path == "/api/local/action":

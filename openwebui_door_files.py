@@ -2,7 +2,7 @@
 title: 📂 Door files
 author: AI Hub (security checklist c1)
 description: Read the folders opened for Open WebUI in AI Hub → File access, and write into a read-write door (such as the Outbox).
-version: 1.0
+version: 1.1
 """
 
 import os
@@ -26,10 +26,11 @@ class Tools:
 
     def list_door_files(self, folder: str = "") -> str:
         """
-        List the files in the folders the user has opened for you in AI Hub (File access). Each open
-        folder is a "door". Call this first to see what's there.
+        List the folders and files one level deep in the folders the user has opened for you in AI Hub
+        (File access). Each open folder is a "door". Call this first; if a folder is listed, call it again
+        with that folder to look inside.
         :param folder: a folder inside the doors to list, e.g. "door-test-files"; leave empty to list every door.
-        :return: the files, one per line, with sizes.
+        :return: the folders (ending in /) and files, one per line, with sizes.
         """
         top = _inside(folder)
         if not top or not os.path.isdir(top):
@@ -37,21 +38,37 @@ class Tools:
         doors = sorted(d for d in os.listdir(DOORS) if os.path.isdir(os.path.join(DOORS, d)))
         if not doors:
             return "No doors are open, so no files can be seen. Ask the user to open one in AI Hub → File access."
+        bases = [top] if folder else [os.path.join(DOORS, d) for d in doors]
         lines = []
-        for root, dirs, files in os.walk(top):
-            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
-            for name in sorted(files):
-                if name.startswith("."):
-                    continue
-                p = os.path.join(root, name)
-                try:
-                    size = os.path.getsize(p)
-                except OSError:
-                    continue
-                writable = os.access(os.path.dirname(p), os.W_OK)
-                lines.append(f"{os.path.relpath(p, DOORS)}  ({size:,} bytes{', can write here' if writable else ''})")
+        for base in bases:
+            entries = []
+            try:
+                with os.scandir(base) as it:
+                    for e in it:
+                        if e.name.startswith("."):
+                            continue
+                        try:
+                            if e.is_dir(follow_symlinks=False):
+                                entries.append((0, e.name, e.path, None))
+                            elif e.is_file(follow_symlinks=False):
+                                entries.append((1, e.name, e.path, e.stat(follow_symlinks=False).st_size))
+                        except OSError:
+                            continue
+            except OSError:
+                continue
+            entries.sort(key=lambda x: (x[0], x[1].lower()))   # folders first, then files
+            if not entries:
+                lines.append(f"{os.path.relpath(base, DOORS)}/  (empty)")
+                continue
+            for _, name, p, size in entries:
+                rel = os.path.relpath(p, DOORS)
+                if size is None:
+                    lines.append(f"{rel}/  (folder)")
+                else:
+                    writable = os.access(os.path.dirname(p), os.W_OK)
+                    lines.append(f"{rel}  ({size:,} bytes{', can write here' if writable else ''})")
                 if len(lines) >= MAX_LIST:
-                    lines.append(f"... (stopped at {MAX_LIST} files; list a sub-folder to see more)")
+                    lines.append(f"... (stopped at {MAX_LIST} entries; list a sub-folder to see more)")
                     return "\n".join(lines)
         return "\n".join(lines) or "That door is empty."
 

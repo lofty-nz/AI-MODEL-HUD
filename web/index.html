@@ -464,6 +464,21 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
 .dr-log li:first-child { border-top: 0; }
 .dr-log b { color: var(--text); font-weight: 600; }
 .dr code { font-size: 12px; overflow-wrap: anywhere; }
+.dr-chosen { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; max-width: 100%; }
+.dr-recent { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.dr-chip { border: 1px solid var(--line); background: var(--panel-2); color: var(--text); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-chip:hover, .dr-chip.on { background: var(--btn); }
+.dr-br { margin-top: 10px; border: 1px solid var(--line); border-radius: 12px; padding: 10px; background: var(--panel-2); }
+.dr-br-head { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-bottom: 8px; }
+.dr-br-head:last-child { margin: 8px 0 0; }
+.dr-why { margin: 0 0 8px; font-size: 12px; color: var(--amber); }
+.dr-dirs { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.dr-dirs li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; border-top: 1px solid var(--line); padding: 2px 4px; }
+.dr-dirs li:first-child { border-top: 0; }
+.dr-dirs small { color: var(--muted); font-size: 11px; padding: 0 8px 6px; flex-basis: 100%; }
+.dr-dir { border: 0; background: none; color: var(--text); font: inherit; font-size: 13px; text-align: left; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.dr-dir:hover { background: var(--btn); }
+.dr-dir:disabled { color: var(--muted); cursor: default; background: none; }
 .opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; align-items: start; }
 .opts .card { padding: 16px; }
 .opts h2 { margin: 0 0 12px; font-size: 16px; }
@@ -782,7 +797,8 @@ function applyTheme() {
 applyTheme();
 
 /* ---------- 📂 File access: doors (aidoor, the small root helper, does the mounting) ---------- */
-const dr = { data: null, timer: null, form: {}, peek: {}, busy: false };
+const dr = { data: null, timer: null, form: {}, peek: {}, busy: false, br: {} };
+const drBase = p => p.replace(/\/+$/, "").split("/").pop() || p;
 function drTime(ts) {
   const d = new Date(ts * 1000), same = d.toDateString() === new Date().toDateString();
   return (same ? "" : d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }) + " ")
@@ -805,9 +821,10 @@ async function drLoad() {
 }
 const DR_LEN = { hour: "1 hour", today: "Until midnight", closed: "Until I close it" };
 function drLogLine(e, m) {
-  const c = m.containers[e.container]?.label || e.container || "", f = m.folders[e.folder]?.label || e.folder || "";
+  const c = m.containers[e.container]?.label || e.container || "";
+  const f = e.path ? drBase(e.path) : (m.folders[e.folder]?.label || e.folder || "");
   const what = {
-    open: `opened <b>${esc(f)}</b> for <b>${esc(c)}</b> (${e.mode === "rw" ? "read-write" : "read-only"}${e.until ? ", until " + drTime(e.until) : ", until closed"})`,
+    open: `opened <b title="${esc(e.path || "")}">${esc(f)}</b> for <b>${esc(c)}</b> (${e.mode === "rw" ? "read-write" : "read-only"}${e.until ? ", until " + drTime(e.until) : ", until closed"})`,
     extend: `kept <b>${esc(f)}</b> open for <b>${esc(c)}</b>${e.until ? " until " + drTime(e.until) : " until closed"}`,
     close: `closed <b>${esc(f)}</b> for <b>${esc(c)}</b>${e.reason ? " (" + esc(e.reason) + ")" : ""}`,
     approve: `approved the folder <b>${esc(e.path || f)}</b>`, unapprove: `removed the folder <b>${esc(f)}</b> from the list`,
@@ -817,11 +834,11 @@ function drLogLine(e, m) {
 }
 function drMachine(m) {
   if (!m.available) return `<div class="card"><h2>${esc(m.name)}</h2><p class="dr-none">${m.error && !/isn't installed/.test(m.error) ? "Can't reach it: " + esc(m.error) : "File access isn't set up on this PC."}</p></div>`;
-  const cs = Object.entries(m.containers), fs = Object.entries(m.folders);
-  const f = dr.form[m.name] ||= { container: cs[0]?.[0] || "", folder: fs[0]?.[0] || "", mode: "ro", length: "hour" };
+  const cs = Object.entries(m.containers);
+  const f = dr.form[m.name] ||= { container: (cs.find(([, c]) => c.wired) || cs[0])?.[0] || "", path: "", mode: "ro", length: "hour" };
   const mn = esc(m.name);
   const doors = m.doors.length ? `<ul class="dr-list">${m.doors.map(d => `<li>
-      <span class="dr-what"><b>${esc(d.label)} → ${esc(m.containers[d.container]?.label || d.container)}</b>
+      <span class="dr-what"><b>${esc(drBase(d.path) || d.label)} → ${esc(m.containers[d.container]?.label || d.container)}</b>
         <small>${esc(d.path)} · ${m.containers[d.container]?.wired === false ? "<b class=\"tg-err\" style=\"display:inline\">not visible: that container has no /doors folder yet</b>" : "inside it: /doors/" + esc(d.folder)}</small></span>
       <span class="dr-tag ${d.mode}">${d.mode === "ro" ? "READ-ONLY" : "READ-WRITE"}</span>
       <span class="dr-when">${d.until ? "closes " + drTime(d.until) : "open until you close it"}</span>
@@ -830,14 +847,20 @@ function drMachine(m) {
   const opt = (list, cur) => list.map(([k, v]) => `<option value="${esc(k)}"${k === cur ? " selected" : ""}>${esc(v.label || k)}${v.wired === false ? " (not set up yet)" : ""}</option>`).join("");
   const seg = (key, choices) => `<span class="dr-seg" role="radiogroup">${Object.entries(choices).map(([k, label]) =>
     `<label><input type="radio" name="dr-${key}-${mn}" value="${k}" data-drf="${key}" data-m="${mn}"${f[key] === k ? " checked" : ""}>${label}</label>`).join("")}</span>`;
-  const form = cs.length && fs.length ? `<div class="dr-form">
+  const recent = (m.recent || []).filter(p => p !== f.path);
+  const form = cs.length ? `<div class="dr-form">
       <select data-drf="container" data-m="${mn}" aria-label="Container">${opt(cs, f.container)}</select>
       <span class="hint-muted">may see</span>
-      <select data-drf="folder" data-m="${mn}" aria-label="Folder">${opt(fs, f.folder)}</select>
+      ${f.path ? `<code class="dr-chosen" title="${esc(f.path)}">${esc(f.path)}</code>` : `<span class="dr-none">no folder chosen</span>`}
+      <button class="pill plain" data-dr="br-open" data-m="${mn}">${f.path ? "Change…" : "Choose folder…"}</button></div>
+    ${recent.length ? `<div class="dr-recent"><span class="hint-muted">Recent:</span>${recent.map(p =>
+      `<button class="dr-chip" data-dr="use" data-m="${mn}" data-p="${esc(p)}" title="${esc(p)}">📁 ${esc(drBase(p))}</button>`).join("")}</div>` : ""}
+    ${dr.br[m.name] ? drBrowser(m) : ""}
+    <div class="dr-form" style="margin-top:10px">
       ${seg("mode", { ro: "Read-only", rw: "Read-write" })}
       ${seg("length", DR_LEN)}
-      <button class="pill start" data-dr="open" data-m="${mn}">Open door</button></div>`
-    : `<p class="dr-none">Nothing to open yet: no ${cs.length ? "approved folders" : "containers allowed doors"}.</p>`;
+      <button class="pill start" data-dr="open" data-m="${mn}"${f.path ? "" : " disabled"}>Open door</button></div>`
+    : `<p class="dr-none">No containers may have doors yet.</p>`;
   const conts = `<ul class="dr-list">${cs.map(([k, c]) => `<li>
       <span class="dr-what"><b>${esc(c.label || k)}</b><small>container ${esc(k)} · ${c.wired ? "its doors appear at /doors"
         : `not set up yet: it needs <code>${esc(m.door_root)}/${esc(k)}:/doors:ro,rslave</code> in its volumes, then recreating once`}</small></span>
@@ -845,15 +868,43 @@ function drMachine(m) {
       <span class="dr-tag ${c.running === "running" ? "up" : ""}">${c.running === "running" ? "RUNNING" : esc((c.running || "not found").toUpperCase())}</span>
       <button class="pill plain" data-dr="peek" data-m="${mn}" data-c="${esc(k)}"${c.running === "running" ? "" : " disabled"}>Look inside</button>
       ${dr.peek[m.name + "/" + k] != null ? `<pre class="dr-peek">${esc(dr.peek[m.name + "/" + k])}</pre>` : ""}</li>`).join("")}</ul>`;
-  const folders = `<ul class="dr-list">${fs.map(([k, v]) => `<li><span class="dr-what"><b>${esc(v.label || k)}</b><small>${esc(v.path)}</small></span></li>`).join("")}</ul>
-    <p class="hint-muted" style="margin:8px 0 0">To add a folder, run this on ${mn} (it asks for your password): <code>sudo aidoor approve ~/path/to/folder --label "A name"</code>. Hidden folders (like <code>.ssh</code> or <code>.config</code>) and your whole home folder can't be added.</p>`;
-  const log = m.log.length ? `<ul class="dr-log">${m.log.slice(-15).reverse().map(e => drLogLine(e, m)).join("")}</ul>` : `<p class="dr-none">Nothing yet.</p>`;
+  const never = `<p class="hint-muted" style="margin:0">You can share any folder inside ${(m.allow_roots || []).map(r => `<code>${esc(r)}</code>`).join(" or ")}, except hidden folders (like <code>.ssh</code> or <code>.config</code>), the whole home folder, and these, which hold other programs' keys or data (or any folder containing one):</p>
+    <ul class="dr-log dr-never" style="margin-top:6px">${(m.deny || []).map(d => `<li><code>${esc(d)}</code></li>`).join("")}</ul>
+    <p class="hint-muted" style="margin:6px 0 0">Everything inside a shared folder is visible, hidden files included.</p>`;
+  const log = m.log.length ? `<ul class="dr-log dr-events">${m.log.slice(-15).reverse().map(e => drLogLine(e, m)).join("")}</ul>` : `<p class="dr-none">Nothing yet.</p>`;
   return `<div class="card"><h2>${mn}</h2>
     <h3>Open doors</h3>${doors}
     <h3>Open a door</h3>${form}
     <h3>Containers that may have doors</h3>${conts}
-    <h3>Approved folders</h3>${folders}
+    <h3>Folders that can't be shared</h3>${never}
     <h3>Log</h3>${log}</div>`;
+}
+function drBrowser(m) {
+  const b = dr.br[m.name], mn = esc(m.name);
+  if (!b.data) return `<div class="dr-br"><p class="dr-none">${b.error ? `<span class="tg-err">${esc(b.error)}</span>` : "Loading…"}</p></div>`;
+  const d = b.data;
+  const crumbs = d.roots.map(r => `<button class="dr-chip${d.path === r || d.path.startsWith(r + "/") ? " on" : ""}" data-dr="br-go" data-m="${mn}" data-p="${esc(r)}">${r.startsWith("/home/") ? "🏠 Home" : "💽 " + esc(r)}</button>`).join("");
+  const list = d.dirs.length ? d.dirs.map(x => `<li><button class="dr-dir" data-dr="br-go" data-m="${mn}" data-p="${esc(x.path)}"${x.closed ? " disabled" : ""}>📁 ${esc(x.name)}</button>${x.why ? `<small>${x.closed ? "🔒 " : ""}${esc(x.why)}</small>` : ""}</li>`).join("")
+    : `<li><span class="dr-none">No folders in here${d.files ? ` (${d.files} file${d.files === 1 ? "" : "s"})` : ""}.</span></li>`;
+  return `<div class="dr-br" role="group" aria-label="Choose a folder">
+    <div class="dr-br-head">${crumbs}</div>
+    <div class="dr-br-head">
+      ${d.parent ? `<button class="pill plain" data-dr="br-go" data-m="${mn}" data-p="${esc(d.parent)}" aria-label="Up one folder">↑ Up</button>` : ""}
+      <code class="dr-chosen">${esc(d.path)}</code>
+      <span class="hint-muted">${d.files} file${d.files === 1 ? "" : "s"}, ${d.dirs.length + d.more} folder${d.dirs.length + d.more === 1 ? "" : "s"}</span></div>
+    ${d.why ? `<p class="dr-why">${esc(d.why)}</p>` : ""}
+    <ul class="dr-dirs">${list}</ul>${d.more ? `<p class="dr-none">… and ${d.more} more</p>` : ""}
+    <div class="dr-br-head"><button class="pill start" data-dr="br-pick" data-m="${mn}"${d.why ? " disabled" : ""}>Choose this folder</button>
+      <button class="pill plain" data-dr="br-close" data-m="${mn}">Cancel</button></div></div>`;
+}
+async function drBrowse(machine, path) {
+  const b = dr.br[machine] ||= {};
+  b.error = "";
+  drRender();
+  try { b.data = await post("api/doors/browse", { machine, path }); }
+  catch (err) { b.error = err.message; }
+  drRender();
+  document.querySelector(`.dr-br .dr-chosen`)?.scrollIntoView({ block: "nearest" });
 }
 function drRender() {
   $("#doors-body").innerHTML = `<div class="card"><h2>📂 File access</h2>
@@ -869,11 +920,16 @@ $("#doors-body").addEventListener("click", async e => {
   const b = e.target.closest("[data-dr]");
   if (!b || b.disabled) return;
   const a = b.dataset.dr, machine = b.dataset.m, m = dr.data.machines.find(x => x.name === machine);
+  const f = dr.form[machine] ||= {};
+  if (a === "br-open") { drBrowse(machine, f.path || ""); return; }
+  if (a === "br-go") { drBrowse(machine, b.dataset.p); return; }
+  if (a === "br-close") { delete dr.br[machine]; drRender(); return; }
+  if (a === "br-pick") { f.path = dr.br[machine].data.path; delete dr.br[machine]; drRender(); return; }
+  if (a === "use") { f.path = b.dataset.p; delete dr.br[machine]; drRender(); return; }
   let body = { machine, name: opts.name || "" };
   if (a === "open") {
-    const f = dr.form[machine];
-    if (f.mode === "rw" && !confirm(`Read-write lets ${m.containers[f.container]?.label || f.container} change and delete files in ${m.folders[f.folder]?.label || f.folder}. Open it read-write?`)) return;
-    body = { ...body, container: f.container, folder: f.folder, mode: f.mode, length: f.length };
+    if (f.mode === "rw" && !confirm(`Read-write lets ${m.containers[f.container]?.label || f.container} change and delete files in ${f.path}. Open it read-write?`)) return;
+    body = { ...body, container: f.container, path: f.path, mode: f.mode, length: f.length };
   } else body = { ...body, container: b.dataset.c, folder: b.dataset.f };
   b.disabled = true; dr.busy = true;
   try {
