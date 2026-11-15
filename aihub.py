@@ -42,6 +42,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(1, os.path.expanduser("~/Documents/sysmon"))
 import aimon_core as core  # noqa: E402
+import card  # noqa: E402
 import checklists  # noqa: E402
 import projects  # noqa: E402
 import health  # noqa: E402
@@ -296,6 +297,12 @@ class Local:
             raise ValueError(f"No such row: {key}")
         if row.get("busy"):
             raise ValueError(f"{row['name']} is busy")
+        if action == "start" and CARD and CARD.is_user(key):
+            # Big models share the card: the card keeper makes room first (and won't while it's busy)
+            res = CARD.claim(key, "AI Hub START")
+            if res["state"] in ("busy", "taken", "failed"):
+                raise ValueError(res["msg"][:1].upper() + res["msg"][1:])
+            return res["msg"]
         if action == "start" and row["kind"] != "comfy":
             work, label = (lambda: core.start_row(row)), "starting"
         elif action == "stop":
@@ -1276,6 +1283,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_file(PAGE, "text/html")
         elif path == "/api/local":
             self.send_json(local_state())
+        elif path == "/api/local/card":   # the card keeper: what's on the card, why it's busy, recent switches
+            self.send_json(CARD.status() if CARD else {"enabled": False})
         elif path == "/api/state":
             with ThreadPoolExecutor(max(1, len(CFG["peers"]))) as pool:
                 peers = list(pool.map(peer_state, CFG["peers"]))
@@ -1428,6 +1437,12 @@ class Handler(BaseHTTPRequestHandler):
                         "/api/local/doors/open", "/api/local/doors/close", "/api/local/doors/peek", "/api/local/doors/browse"):
                 self.doors_post(path, req)
                 return
+            if self.path == "/api/local/card":   # ask for a model on the card: ready / working / busy / taken / failed
+                if not CARD:
+                    raise ValueError("This PC has no card keeper (no \"card\" in its config)")
+                self.send_json({"ok": True, **CARD.claim(str(req.get("want") or ""), str(req.get("who") or "?")[:40],
+                                                         bool(req.get("evict", True)))})
+                return
             if self.path == "/api/local/action":
                 self.send_json({"ok": True, "message": LOCAL.act(req.get("key"), req.get("action"))})
             elif self.path == "/api/action":
@@ -1518,6 +1533,7 @@ class Handler(BaseHTTPRequestHandler):
 
 CFG = load_config()
 LOCAL = Local(CFG)
+CARD = card.Keeper(LOCAL, CFG["card"]) if CFG.get("card") is not None else None   # main PC only
 HEALTH = health.Health(LOCAL)
 HELPER_OK = helper_ok()
 CAN_REBOOT = can_reboot()
