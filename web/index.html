@@ -648,6 +648,7 @@ button.hm-pc:hover, button.hm-pc:focus-visible { border-color: var(--faint); out
 <main>
   <section class="view" id="view-home">
     <div class="hm-health" id="hm-health"></div>
+    <div id="hm-top"></div>
     <section class="hm-sec" id="hm-pins-sec" hidden>
       <h2 class="section-label">Everyday</h2>
       <div class="hm-pins" id="hm-pins"></div>
@@ -809,7 +810,8 @@ button.hm-pc:hover, button.hm-pc:focus-visible { border-color: var(--faint); out
         <h3>Home</h3>
         <ul>
           <li>The strip at the top has one chip per PC: its temperatures and any problems. A click opens <b>Machines</b>; a PC that's off offers <b>Wake</b>.</li>
-          <li>Every program and project is a tile, in groups, with a search box. <b>Older projects</b> and <b>Trying out</b> start folded; a click on a group's name folds or unfolds it (remembered in this browser).</li>
+          <li><b>Test Tag &amp; Repair</b> and <b>Chook Nation</b> sit right at the top, above Everyday (the <code>top</code> list in projects.json says which groups; ask Claude to change it). A pinned program in one of them isn't shown again in Everyday.</li>
+          <li>Every other program and project is a tile, in groups, with a search box. <b>Older projects</b> and <b>Trying out</b> start folded; a click on a group's name folds or unfolds it (remembered in this browser).</li>
           <li>A click on a tile opens it: in a new tab for a web page, or on a PC's screen for a program. The dot says how it is: <b>Up</b> (the server asked it in the last 30 seconds and it answered), <b>Not answering</b>, <b>Off</b> with a <b>Start</b> button (a program that runs in a container; Start works like START on Machines, through the card keeper), or <b>Running</b> (a program open on a PC's screen).</li>
           <li><b>i</b> on a tile shows everything about it: every place it opens (<b>In this browser</b>, <b>On a PC's screen</b>, <b>Work on it</b> = its folder in VS Code or Files, or GitHub), its folders and notes. Tick <b>Remember my choice</b> and a click on the tile goes there from then on (this browser only); ✓ marks what a click opens.</li>
           <li><b>☆ Pin to Everyday</b> in the same box puts a program in the big tiles at the top (every device sees the same ones). <b>✎ Edit</b> changes its name, icon, what it is, group, web links and GitHub link, or hides it. <b>＋ Add</b> adds one with web links. Programs, shared folders, project folders, status checks and Start buttons are set by hand, so ask Claude for those.</li>
@@ -2663,10 +2665,18 @@ const pjMatches = (p, q) => !q || [p.name, p.about, p.group, p.note, ...(p.folde
 function pjRender() {
   if (!pj.data) return;
   const all = pj.data.projects, q = $("#pj-search").value.trim().toLowerCase(), showHidden = $("#pj-hidden").checked;
-  const pins = all.filter(p => p.pinned && !p.hidden);
+  // the groups named in projects.json's "top" list get their own sections above Everyday, and leave the list below
+  // (a search still finds their tiles there)
+  const top = (pj.data.top || []).filter(g => typeof g === "string");
+  $("#hm-top").innerHTML = top.map(g => {
+    const list = all.filter(p => p.group === g && (showHidden || !p.hidden));
+    return list.length ? `<section class="hm-sec"><h2 class="section-label">${esc(g)}</h2>
+      <div class="pj-grid">${list.map(p => pjTile(p)).join("")}</div></section>` : "";
+  }).join("");
+  const pins = all.filter(p => p.pinned && !p.hidden && !top.includes(p.group));
   $("#hm-pins-sec").hidden = !pins.length;
   $("#hm-pins").innerHTML = pins.map(p => pjTile(p, true)).join("");
-  const items = all.filter(p => (showHidden || !p.hidden) && pjMatches(p, q));
+  const items = all.filter(p => (showHidden || !p.hidden) && pjMatches(p, q) && (q || !top.includes(p.group)));
   const groups = [...new Set([...(pj.data.groups || []), ...items.map(p => p.group || "Other")])];
   const fold = opts.pjFold || {};
   const html = groups.map(g => {
