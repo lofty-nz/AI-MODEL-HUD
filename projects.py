@@ -2,13 +2,17 @@
 and starting a program (or a project folder in VS Code / Files) on this PC's screen.
 
 - The list is <docs_dir>/projects.json on the hub with the docs (the server). The page may change a
-  project's name, icon, what it is, group, web links, GitHub link and hidden flag. It can never set a
+  project's name, icon, what it is, group, web links, GitHub link, hidden and pinned flags. It can never set a
   command or a folder: those come from each PC's own ~/.config/aihub/config.json ("serve",
   "launchers", "folder_roots"), so a web page can only pick from what this PC already allows.
 - Served folders are on their own port (files_port, default 8091), so a project's page never shares
   the hub's address (and so can't use the hub's buttons or settings). Web file types only, no hidden
   files, nothing outside the folder.
 - Programs start through `systemd-run --user --scope`, so they keep running when the hub restarts.
+- Fields set by hand in projects.json and kept when the page saves: "folders", "note", the non-web places,
+  "logo" (a file in web/icons shown instead of the emoji), "container" ({"pc", "key"}: the Machines row that
+  runs it, so the Home page can show Off and a Start button), "check" (the address the Checker asks instead
+  of the first web link, e.g. the LAN address behind an https name) and "check_every" (seconds).
 """
 import html
 import ipaddress
@@ -21,6 +25,7 @@ import subprocess
 import threading
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 FILE = "projects.json"
@@ -127,7 +132,7 @@ def save(docs_dir, req):
         p = dict(old or {"id": _slug(name, {x.get("id") for x in items})})
         p.update({"name": name, "icon": _text(new.get("icon"), 8, "The icon"),
                   "about": _text(new.get("about"), 300, "What it is"), "group": _text(new.get("group"), 40, "The group"),
-                  "github": gh, "hidden": bool(new.get("hidden"))})
+                  "github": gh, "hidden": bool(new.get("hidden")), "pinned": bool(new.get("pinned"))})
         # web links first (in the order given), then the places this page can't edit, in their old order
         p["places"] = web + [x for x in (old or {}).get("places", []) if x.get("kind") != "web"]
         if old:
@@ -139,6 +144,57 @@ def save(docs_dir, req):
         _write(docs_dir, data)
         return {"message": "Saved" if old else "Project added", "id": p["id"]}
 
+
+
+class Checker:
+    """Asks each project's address whether anything answers, from the hub with the list, so the Home page can
+    show a dot on every tile. Any HTTP reply counts as up (as with the hub's link checks), so an https name in
+    front of a program that's off can look up: give such a project a "check" address (the program itself)."""
+    POLL_S = 30
+
+    def __init__(self, docs_dir, probe):
+        self.docs_dir, self.probe = docs_dir, probe
+        self.status = {}
+        threading.Thread(target=self._run, daemon=True).start()
+
+    @classmethod
+    def target(cls, p):
+        """(address to ask, seconds between asks) for one project, or (None, None)."""
+        every = max(10.0, float(p.get("check_every") or cls.POLL_S))
+        if "check" in p:   # "check": false = nothing to ask (its container's state is enough)
+            return (p["check"], every) if p["check"] else (None, None)
+        url = next((x.get("url") for x in p.get("places") or [] if x.get("kind") == "web" and x.get("url")), None)
+        host = urllib.parse.urlsplit(url).hostname if url else None
+        if not url or host in ("localhost", "::1") or (host or "").startswith("127."):
+            return None, None   # a this-PC-only address means nothing when this hub asks it
+        return url, every
+
+    def _run(self):
+        last = {}   # address -> (monotonic time asked, up, wall time)
+        while True:
+            try:
+                items = load(self.docs_dir)["projects"]
+            except (OSError, ValueError):
+                items = []
+            now, want, every = time.monotonic(), {}, {}
+            for p in items:
+                try:
+                    url, secs = self.target(p)
+                except (TypeError, ValueError):
+                    continue
+                if url and p.get("id"):
+                    want[p["id"]] = url
+                    every[url] = min(every.get(url, 1e9), secs)
+            due = [u for u, secs in every.items() if u not in last or now - last[u][0] >= secs - 1]
+            if due:
+                with ThreadPoolExecutor(8) as pool:
+                    for u, up in zip(due, pool.map(self.probe, due)):
+                        last[u] = (now, up, time.time())
+            self.status = {pid: {"up": last[u][1], "at": int(last[u][2])} for pid, u in want.items() if u in last}
+            time.sleep(self.POLL_S)
+
+    def snapshot(self):
+        return dict(self.status)
 
 # ---------- served folders: a second port, web files only ----------
 
@@ -337,9 +393,31 @@ def launch(cfg, req):
     raise ValueError("Nothing to start")
 
 
+_RUNNING = {"at": -1e9, "keys": []}
+_RUNNING_LOCK = threading.Lock()
+
+
+def running_launchers(cfg):
+    """Keys of this PC's launchers whose "running" pattern matches a process (asked at most every 10 s)."""
+    with _RUNNING_LOCK:
+        if time.monotonic() - _RUNNING["at"] < 10:
+            return _RUNNING["keys"]
+        keys = []
+        for key, item in (cfg.get("launchers") or {}).items():
+            if isinstance(item, dict) and item.get("running"):
+                try:
+                    if subprocess.run(["pgrep", "-f", item["running"]], capture_output=True, timeout=2).returncode == 0:
+                        keys.append(key)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+        _RUNNING.update(at=time.monotonic(), keys=keys)
+        return keys
+
+
 def local_info(cfg, files_server):
-    """What this PC offers the Projects tab (sent with the 2-second readings, so keep it small)."""
+    """What this PC offers the Home page's projects (sent with the 2-second readings, so keep it small)."""
     url = cfg.get("files_url") or (f"http://{cfg.get('lan_ip') or '127.0.0.1'}:{cfg.get('files_port')}" if files_server else None)
     return {"files_url": url if files_server else None,
             "serve": sorted(FilesHandler.serve) if files_server else [],
-            "launchers": {k: (v.get("name") or k) for k, v in (cfg.get("launchers") or {}).items() if isinstance(v, dict)}}
+            "launchers": {k: (v.get("name") or k) for k, v in (cfg.get("launchers") or {}).items() if isinstance(v, dict)},
+            "running": running_launchers(cfg)}

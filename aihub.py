@@ -55,6 +55,8 @@ DEFAULTS = {
     "name": socket.gethostname(),
     "port": 8090,
     "lan_ip": None,          # address other devices reach this PC on; links use it instead of 127.0.0.1
+                             # (checked at start: if it isn't on this PC any more, the real one is used)
+    "https_url": None,       # this hub's https address (the 🎤 buttons need https; plain-http pages offer it)
     "peers": [],             # [{"name", "url", "mac"}]: the other PCs' hubs; mac is for Wake-on-LAN
     "docs_dir": None,        # folder of docs this hub serves; None = the page uses docs_url instead
     "docs_url": None,        # another hub that has the docs
@@ -102,7 +104,33 @@ def load_config():
     cfg["allow"] = [ipaddress.ip_network(n) for n in cfg["allow"]]
     if cfg["docs_dir"]:
         cfg["docs_dir"] = os.path.expanduser(cfg["docs_dir"])
+    check_lan_ip(cfg)
     return cfg
+
+
+def check_lan_ip(cfg):
+    """A lan_ip that isn't on this PC any more (the PC moved network, e.g. a phone hotspot during an outage)
+    quietly breaks every link built from it. Use the address this PC really reaches its peers on, and log it."""
+    if not cfg.get("lan_ip"):
+        return
+    try:
+        out = subprocess.run(["ip", "-o", "addr", "show"], capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return
+    mine = {f[3].split("/")[0] for f in (line.split() for line in out.splitlines()) if len(f) > 3}
+    if not mine or cfg["lan_ip"] in mine:
+        return
+    target = next((urllib.parse.urlsplit(p.get("url") or "").hostname for p in cfg["peers"] if p.get("url")), None)
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect((target or "192.168.0.1", 9))   # picks the route only; nothing is sent
+            found = s.getsockname()[0]
+    except OSError:
+        return
+    if found in mine and not found.startswith("127."):
+        print(f"aihub: lan_ip {cfg['lan_ip']} isn't on this PC; using {found} (fix lan_ip in {CONFIG})",
+              file=sys.stderr, flush=True)
+        cfg["lan_ip"] = found
 
 
 def cpu_limits():
@@ -1290,7 +1318,7 @@ class Handler(BaseHTTPRequestHandler):
                 peers = list(pool.map(peer_state, CFG["peers"]))
             links = [dict(link, up=LOCAL.links.get(link["url"])) for link in CFG["links"]]
             self.send_json({"self": CFG["name"], "machines": [local_state()] + peers, "links": links,
-                            "label_ideas": core.LABEL_IDEAS,
+                            "label_ideas": core.LABEL_IDEAS, "https_url": CFG["https_url"],
                             "docs_url": None if CFG["docs_dir"] else CFG["docs_url"]})
         elif path == "/api/local/doors":
             self.send_json(DOORS.list())
@@ -1317,12 +1345,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"docs": [], "groups": [], "remote": CFG["docs_url"]})
             else:
                 self.send_json(list_docs(CFG["docs_dir"]))
-        elif path == "/api/projects":   # the Projects tab's list, kept in the docs folder like the checklists
+        elif path == "/api/projects":   # the Home page's projects, kept in the docs folder like the checklists
             if not CFG["docs_dir"]:
                 self.send_json({"projects": [], "groups": [], "remote": CFG["docs_url"]})
             else:
                 try:
-                    self.send_json(projects.load(CFG["docs_dir"]))
+                    self.send_json({**projects.load(CFG["docs_dir"]), "status": PJCHECK.snapshot() if PJCHECK else {}})
                 except ValueError as e:
                     self.send_json({"error": str(e)}, 500)
         elif path == "/api/checklists":   # the Checklists tab: kept in the docs folder, like the docs
@@ -1544,6 +1572,7 @@ TG = telegram_hub.Telegram(CFG["telegram"], transcribe=transcribe if CFG["dictat
                           reply_urls=CFG["telegram_reply_urls"])
 AUTH = hub_auth.Auth()
 FILES = None   # the Projects tab's files server, started below
+PJCHECK = projects.Checker(CFG["docs_dir"], answers) if CFG["docs_dir"] else None   # the Home page's status dots
 
 
 def local_state():

@@ -55,10 +55,6 @@ nav button[aria-selected="true"] { color: var(--text); background: var(--btn); }
 main { max-width: 1400px; margin: 0 auto; padding: 16px; }
 .view[hidden] { display: none !important; }
 
-/* Links strip */
-.links { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
-.link-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.link-label { color: var(--muted); font-size: 12px; font-weight: 600; margin-right: 2px; }
 .chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
   background: var(--panel); border: 1px solid var(--line); color: var(--text); font-weight: 600; font-size: 13px; }
 .chip:hover { text-decoration: none; border-color: var(--faint); }
@@ -109,6 +105,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
 .dot.on { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 20%, transparent); }
 .dot.busy { background: var(--amber); animation: pulse 1s infinite alternate; }
 .dot.failed { background: var(--red); }
+.dot.warn { background: var(--amber); }
 @keyframes pulse { to { opacity: .35; } }
 .rname { font-weight: 700; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
 .rname .rn { min-width: 0; max-width: 100%; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -505,30 +502,82 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
   border-radius: 12px; padding: 10px 16px; box-shadow: 0 8px 30px rgba(0,0,0,.35); font-weight: 600; z-index: 20; max-width: calc(100vw - 32px); }
 .toast.bad { border-color: var(--red); color: var(--red); }
 
-/* Projects: one card per little project; ▶ Open goes straight there or asks where */
-.pj-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 16px; }
+/* Home: the PCs at a glance, Everyday tiles, On the go, then every program and project as a tile */
+.hm-health { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.hm-pc { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; background: var(--panel);
+  border: 1px solid var(--line); color: var(--text); font-weight: 700; font-size: 13px; cursor: pointer; }
+button.hm-pc:hover, button.hm-pc:focus-visible { border-color: var(--faint); outline: none; }
+.hm-pc small { color: var(--muted); font-weight: 500; font-size: 12px; }
+.hm-pc small b { font-weight: 700; }
+.hm-pc.off { cursor: default; color: var(--muted); }
+.hm-pc .pill { font-size: 11px; padding: 3px 10px; min-width: 0; }
+.hm-pc.more { color: var(--link); font-weight: 600; background: none; border-style: dashed; }
+.hm-sec { margin: 0 0 24px; }
+.hm-sec > h2 { margin: 0 0 8px 2px; }
+.hm-pins { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 12px; }
+.hm-todo { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 8px; }
+.todo { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 2px 8px; align-items: center; text-align: left; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; cursor: pointer; color: var(--text); min-width: 0; }
+.todo:hover, .todo:focus-visible { border-color: var(--link); outline: none; }
+.todo .i { grid-row: span 3; font-size: 16px; text-align: center; align-self: start; }
+.todo b { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo small { color: var(--muted); font-size: 12px; }
+.todo small .bad { color: var(--red); }
+.todo-bar { grid-column: 2; height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; margin-top: 3px; }
+.todo-bar i { display: block; height: 100%; background: var(--green); }
+.todo.more { grid-template-columns: 1fr; color: var(--link); font-weight: 600; background: none; border-style: dashed; }
+.tile { display: grid; grid-template-columns: minmax(0, 1fr) auto; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: var(--shadow); min-width: 0; }
+.tile:hover { border-color: var(--faint); }
+.tile.hid { opacity: .55; }
+.tile-main { display: grid; grid-template-columns: 32px minmax(0, 1fr); grid-template-rows: auto 1fr; gap: 1px 10px; align-content: start;
+  text-align: left; background: none; border: 0; padding: 12px 4px 12px 12px; cursor: pointer; color: var(--text); min-width: 0;
+  border-radius: 14px 0 0 14px; }
+.tile-main:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
+.tile-icon { grid-row: span 2; font-size: 22px; line-height: 1.25; text-align: center; }
+.tile-icon img { width: 30px; height: 30px; object-fit: contain; display: block; margin: 0 auto; }
+.tile-name { font-weight: 700; font-size: 14px; overflow-wrap: anywhere; }
+.tile-about { align-self: start; color: var(--muted); font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tile-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding: 10px 10px 10px 0; }
+.tile-side .tile-info { margin-top: auto; }
+.tstat { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); white-space: nowrap; font-weight: 700; }
+.tstat .dot { width: 8px; height: 8px; box-shadow: none; }
+.tstat.on { color: var(--green); } .tstat.failed { color: var(--red); } .tstat.busy { color: var(--amber); }
+.tile .pill { font-size: 11px; padding: 3px 10px; min-width: 0; }
+.tile-info { flex: none; background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 999px; width: 24px; height: 24px;
+  cursor: pointer; font: italic 700 13px/1 Georgia, serif; padding: 0; }
+.tile-info:hover, .tile-info:focus-visible { color: var(--text); border-color: var(--faint); outline: none; }
+.tile.big .tile-main { grid-template-columns: 44px minmax(0, 1fr); padding: 16px 4px 16px 16px; }
+.tile.big .tile-icon { font-size: 32px; }
+.tile.big .tile-icon img { width: 42px; height: 42px; }
+.tile.big .tile-name { font-size: 17px; }
+.tile.big .tile-about { font-size: 13px; }
+.tile.big .tile-side { padding: 14px 14px 14px 0; }
+.pj-fold { background: none; border: 0; padding: 2px 0; cursor: pointer; color: inherit; font: inherit; letter-spacing: inherit;
+  text-transform: inherit; display: inline-flex; gap: 6px; align-items: center; }
+.pj-fold:hover { color: var(--text); }
+.pj-fold .n { font-weight: 600; color: var(--faint); }
+.pj-info-head { display: flex; gap: 12px; align-items: flex-start; }
+.pj-info-head .tile-icon { font-size: 30px; width: 40px; flex: none; }
+.pj-info-head .tile-icon img { width: 40px; height: 40px; }
+.pj-stat { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; color: var(--muted); }
+.pj-stat .pill { font-size: 11px; padding: 3px 10px; min-width: 0; }
+
+/* Projects: the search bar, groups and the dialogs (the tiles are above) */
+.pj-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 14px; }
+.pj-bar > .section-label { margin: 0 4px 0 2px; }
 .pj-bar input[type=search] { flex: 1 1 220px; max-width: 360px; background: var(--panel); color: var(--text); border: 1px solid var(--line);
   border-radius: 999px; padding: 7px 14px; font: inherit; }
 .pj-check { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .pj-bar .spacer { flex: 1; }
-.pj-bar .pill, .pj-btns .pill, .pj-dlg .pill { font-size: 12px; padding: 6px 14px; }
+.pj-bar .pill, .pj-dlg .pill { font-size: 12px; padding: 6px 14px; }
 .pj-group { margin: 0 0 22px; }
 .pj-group > h2 { margin: 0 0 8px 2px; }
-.pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; }
-.pj { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column;
-  gap: 6px; min-width: 0; box-shadow: var(--shadow); }
-.pj.hid { opacity: .55; }
-.pj-top { display: flex; align-items: flex-start; gap: 10px; }
-.pj-icon { font-size: 22px; line-height: 1.1; width: 30px; text-align: center; flex: none; }
+.pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); gap: 10px; }
 .pj-head { min-width: 0; flex: 1; }
-.pj-name { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; }
 .pj-about { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
 .pj-where { color: var(--faint); font-size: 12px; overflow-wrap: anywhere; }
 .pj-note { color: var(--amber); font-size: 12px; }
-.pj-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: auto; padding-top: 6px; }
-.pj-btns .pj-gh { margin-left: auto; font-size: 12px; }
-.pj-remember { font-size: 12px; color: var(--muted); }
-.pj-remember button { background: none; border: 0; color: var(--link); cursor: pointer; padding: 0; font-size: 12px; }
 .pj-dlg { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 16px; padding: 0;
   width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 48px); box-shadow: 0 20px 60px rgba(0, 0, 0, .45); }
 .pj-dlg::backdrop { background: rgba(0, 0, 0, .5); }
@@ -564,6 +613,14 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
   .row { grid-template-columns: 18px minmax(0, 1fr) auto; }
   .rmem { grid-column: 2; text-align: left; order: 3; }
   .gpus { padding: 12px; }
+  .hm-pins { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .tile.big { grid-template-columns: 1fr; }
+  .tile.big .tile-main { grid-template-columns: 1fr; justify-items: center; text-align: center; padding: 14px 10px 4px; border-radius: 14px 14px 0 0; }
+  .tile.big .tile-icon { grid-row: auto; }
+  .tile.big .tile-about { display: none; }
+  .tile.big .tile-side { flex-direction: row; justify-content: space-between; align-items: center; padding: 4px 10px 10px; }
+  .tile.big .tile-side .tile-info { margin-top: 0; }
+  .hm-pc.more { display: none; }
 }
 </style>
 </head>
@@ -572,8 +629,8 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
   <div class="bar">
     <div class="brand">AI HUB</div>
     <nav role="tablist">
-      <button role="tab" data-view="overview" aria-selected="true">Overview</button>
-      <button role="tab" data-view="projects">Projects</button>
+      <button role="tab" data-view="home" aria-selected="true">Home</button>
+      <button role="tab" data-view="machines">Machines</button>
       <button role="tab" data-view="docs">Docs</button>
       <button role="tab" data-view="guides">Guides</button>
       <button role="tab" data-view="checks">Checklists</button>
@@ -589,19 +646,30 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
 </header>
 
 <main>
-  <section class="view" id="view-overview">
-    <div class="links" id="links"></div>
-    <div class="machines" id="machines"></div>
+  <section class="view" id="view-home">
+    <div class="hm-health" id="hm-health"></div>
+    <section class="hm-sec" id="hm-pins-sec" hidden>
+      <h2 class="section-label">Everyday</h2>
+      <div class="hm-pins" id="hm-pins"></div>
+    </section>
+    <section class="hm-sec" id="hm-todo-sec" hidden>
+      <h2 class="section-label">On the go</h2>
+      <div class="hm-todo" id="hm-todo"></div>
+    </section>
+    <section class="hm-sec">
+      <div class="pj-bar">
+        <h2 class="section-label">Everything</h2>
+        <input type="search" id="pj-search" placeholder="Search programs and projects" aria-label="Search programs and projects">
+        <label class="pj-check"><input type="checkbox" id="pj-hidden"> Show hidden</label>
+        <span class="spacer"></span>
+        <button class="pill start" id="pj-add">＋ Add</button>
+      </div>
+      <div id="pj-list"><p class="hint-muted">Loading…</p></div>
+    </section>
   </section>
 
-  <section class="view" id="view-projects" hidden>
-    <div class="pj-bar">
-      <input type="search" id="pj-search" placeholder="Search projects" aria-label="Search projects">
-      <label class="pj-check"><input type="checkbox" id="pj-hidden"> Show hidden</label>
-      <span class="spacer"></span>
-      <button class="pill start" id="pj-add">＋ Add project</button>
-    </div>
-    <div id="pj-list"><p class="hint-muted">Loading…</p></div>
+  <section class="view" id="view-machines" hidden>
+    <div class="machines" id="machines"></div>
   </section>
 
   <section class="view" id="view-docs" hidden>
@@ -693,10 +761,10 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
       </div>
       <div class="card help">
         <h2>How it works</h2>
-        <p>This page shows what the <b>AI Model Monitor</b> panel (aimon) shows, for both PCs at once, plus temperatures and the docs. aimon's <b>WEB ↗</b> button opens it.</p>
+        <p><b>Home</b> is the front page: the PCs at a glance, your <b>Everyday</b> programs, what's <b>On the go</b> (unfinished checklists and to-do docs), then every program and project as a tile. <b>Machines</b> shows what the <b>AI Model Monitor</b> panel (aimon) shows, for both PCs at once, with temperatures. aimon's <b>WEB ↗</b> button opens this page.</p>
         <h3>Each PC</h3>
         <ul>
-          <li>A small program, <b>AI Hub</b>, runs on each PC on port 8090. The server's copy is the one to bookmark: <a href="http://192.168.50.235:8090/">192.168.50.235:8090</a> (also <a href="http://server.local:8090/">server.local:8090</a> from the main PC).</li>
+          <li>A small program, <b>AI Hub</b>, runs on each PC on port 8090. The server's copy is the one to bookmark: <span id="help-https">its https address</span> (any device with Tailscale on, at home or away; the 🎤 works there). From the main PC, <a href="http://192.168.50.235:8090/">192.168.50.235:8090</a> works too, even without Tailscale.</li>
           <li>When the main PC is off or asleep, its card says so and offers <b>Wake</b>, which sends a Wake-on-LAN signal from the server.</li>
           <li>The top of each card shows CPU temperature and load, RAM and the system drive. Under it is one tile per graphics card: temperature with the last 5 minutes as a line, how busy it is, VRAM, power, fan, and which containers are using it.</li>
         </ul>
@@ -726,7 +794,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
           <li><b>Important</b> docs show a red mark, <b>Low</b> ones grey. The first drop-down above the list shows only important or commented docs; a tag under it shows only docs with that tag.</li>
           <li><b>Sort</b> orders each category: newest first (the default; the date is when the file was added or last changed), oldest first, A–Z, or important first. Comments always show newest first.</li>
           <li><b>💬 Comments</b> are notes on a doc, shown with who and when. The name comes from <b>Your name</b> below, or else the PC it was written on.</li>
-          <li><b>🎤</b> next to a comment box (and <b>🎤 Speak it</b> under Paste text) lets you talk instead of type: press it, talk, press it again to stop. The server's own Whisper (the one Open WebUI's voice typing uses) writes it out in a few seconds and adds it to the box, so you can fix it before pressing Add. Browsers only allow the mic on the <b>https</b> address (the "Away from home" AI Hub link); on the plain address it offers to switch.</li>
+          <li><b>🎤</b> next to a comment box (and <b>🎤 Speak it</b> under Paste text) lets you talk instead of type: press it, talk, press it again to stop. The server's own Whisper (the one Open WebUI's voice typing uses) writes it out in a few seconds and adds it to the box, so you can fix it before pressing Add. Browsers only allow the mic on the <b>https</b> address; on the plain address it offers to switch.</li>
           <li>You can still copy files into the folder by hand; titles, categories, tags and comments live in its <code>index.json</code>.</li>
         </ul>
         <h3>Checklists</h3>
@@ -738,13 +806,14 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; }
           <li>When you're done, tell Claude “<b>read the checklist</b>”. It reads your replies, fixes things, and writes its answer under each step (in blue). The page picks answers up by itself every few seconds.</li>
           <li>The files are in <code>~/Documents/ai-docs/checklists</code> on the server: <code>&lt;name&gt;.json</code> is the checklist and <code>&lt;name&gt;.state.json</code> is what was ticked and written, and <code>shots/&lt;name&gt;/</code> holds the screenshots (removed ones go to <code>.removed</code> inside it).</li>
         </ul>
-        <h3>Projects</h3>
+        <h3>Home</h3>
         <ul>
-          <li>The <b>Projects</b> tab has a card for each little project (games, tools, TTR, the PC apps, older ones), grouped, with a search box.</li>
-          <li><b>▶ Open</b> goes straight there when there's only one place to open it. When there are several (the live website, the TTR app, the working copy on the main PC…) it asks where. <b>Where…</b> always asks.</li>
-          <li>The places: <b>In this browser</b> (a web address, or a project's folder on a PC, shared by that PC's hub on port 8091, home network only); <b>On a PC's screen</b> (starts a program on that PC, e.g. mTasks or the Camera, even when you're on the phone); <b>Work on it</b> (opens the project's folder in VS Code or Files on the PC that has it, or its GitHub page).</li>
-          <li>Tick <b>Remember my choice</b> and ▶ Open goes there from then on (this browser only); <b>ask every time</b> under the button undoes it.</li>
-          <li><b>✎</b> changes a project's name, icon, what it is, group, web links and GitHub link, or hides it. <b>＋ Add project</b> adds one with web links. Programs, shared folders and project folders are set in each PC's hub settings, so ask Claude for those.</li>
+          <li>The strip at the top has one chip per PC: its temperatures and any problems. A click opens <b>Machines</b>; a PC that's off offers <b>Wake</b>.</li>
+          <li>Every program and project is a tile, in groups, with a search box. <b>Older projects</b> and <b>Trying out</b> start folded; a click on a group's name folds or unfolds it (remembered in this browser).</li>
+          <li>A click on a tile opens it: in a new tab for a web page, or on a PC's screen for a program. The dot says how it is: <b>Up</b> (the server asked it in the last 30 seconds and it answered), <b>Not answering</b>, <b>Off</b> with a <b>Start</b> button (a program that runs in a container; Start works like START on Machines, through the card keeper), or <b>Running</b> (a program open on a PC's screen).</li>
+          <li><b>i</b> on a tile shows everything about it: every place it opens (<b>In this browser</b>, <b>On a PC's screen</b>, <b>Work on it</b> = its folder in VS Code or Files, or GitHub), its folders and notes. Tick <b>Remember my choice</b> and a click on the tile goes there from then on (this browser only); ✓ marks what a click opens.</li>
+          <li><b>☆ Pin to Everyday</b> in the same box puts a program in the big tiles at the top (every device sees the same ones). <b>✎ Edit</b> changes its name, icon, what it is, group, web links and GitHub link, or hides it. <b>＋ Add</b> adds one with web links. Programs, shared folders, project folders, status checks and Start buttons are set by hand, so ask Claude for those.</li>
+          <li>Links are the ones that work anywhere on Tailscale (the <b>…testtagrepair.co.nz</b> names where there's one). A second <b>Home network</b> address is there for when Tailscale is off; it only works from the main PC (the server's firewall lets other home devices use SSH only).</li>
           <li>The list is <code>~/Documents/ai-docs/projects.json</code> on the server, so both PCs and the phone see the same one.</li>
         </ul>
         <h3>Telegram</h3>
@@ -786,7 +855,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const GIB = 1024 ** 3;
 
 /* ---------- settings (this browser only) ---------- */
-const DEFAULT_OPTS = { refresh: 2000, stopped: true, models: true, confirm: true, warn: 12, theme: "auto", view: "overview", name: "", docSort: "new" };
+const DEFAULT_OPTS = { refresh: 2000, stopped: true, models: true, confirm: true, warn: 12, theme: "auto", view: "home", name: "", docSort: "new" };
 let opts = { ...DEFAULT_OPTS };
 try { Object.assign(opts, JSON.parse(localStorage.getItem("aihub-opts") || "{}")); } catch (e) {}
 function saveOpts() { try { localStorage.setItem("aihub-opts", JSON.stringify(opts)); } catch (e) {} }
@@ -942,18 +1011,24 @@ $("#doors-body").addEventListener("click", async e => {
 });
 
 /* ---------- tabs ---------- */
+const OWN_HASH = ["docs", "guides", "checks"];   // these keep their own #doc= / #guide= / #checklist= address
 function showView(name) {
+  if (!document.getElementById("view-" + name)) name = "home";
   opts.view = name; saveOpts();
   document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === name));
   document.querySelectorAll(".view").forEach(v => v.hidden = v.id !== "view-" + name);
+  if (!OWN_HASH.includes(name)) history.replaceState(null, "", location.pathname + location.search + (name === "home" ? "" : "#" + name));
+  if (name === "home") homeLoad(); else clearTimeout(hm.timer);
   if (name === "docs") loadDocs();
   if (name === "guides") gdLoad();
-  if (name === "projects") pjLoad();
   if (name === "telegram") tgLoad(); else clearTimeout(tgTimer);
   if (name === "doors") drLoad(); else clearTimeout(dr.timer);
   if (name === "checks") clLoad(); else clStop();
 }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => showView(b.dataset.view));
+
+/* This hub's https address (config "https_url"; older configs had an "AI Hub" https link): the mic needs https. */
+const hubHttps = () => state?.https_url || (state?.links || []).find(l => l.name === "AI Hub" && /^https:/.test(l.url))?.url || null;
 
 /* ---------- formatting ---------- */
 const gb = b => b == null ? "–" : (b / GIB).toFixed(1);
@@ -991,24 +1066,6 @@ function spark(h, colour) {
 
 /* ---------- rendering ---------- */
 let state = null, lastOk = 0;
-
-function renderLinks(links) {
-  // Links without a "group" come first; each group (e.g. the Tailscale https links) gets its own labelled row.
-  const chip = l => `
-    <a class="chip" href="${esc(l.url)}" target="_blank" rel="noopener" title="${esc(l.url)}">
-      ${l.icon ? `<img class="chip-icon" src="icons/${encodeURIComponent(l.icon)}" alt="">` : ""}<span class="dot ${l.up ? "on" : l.up === false ? "failed" : ""}"></span>${esc(l.name)}
-      ${l.note ? `<small>${esc(l.note)}</small>` : ""}</a>`;
-  const groups = [];
-  for (const l of links) {
-    const g = l.group || "";
-    let row = groups.find(x => x.name === g);
-    if (!row) groups.push(row = { name: g, links: [] });
-    row.links.push(l);
-  }
-  groups.sort((a, b) => (a.name ? 1 : 0) - (b.name ? 1 : 0));
-  $("#links").innerHTML = groups.map(g => `
-    <div class="link-row">${g.name ? `<span class="link-label">${esc(g.name)}</span>` : ""}${g.links.map(chip).join("")}</div>`).join("");
-}
 
 function renderGpu(m, g) {
   const key = `${m.name}:${g.uuid}`;
@@ -1150,8 +1207,13 @@ function renderPcSettings() {
 function render() {
   if (!state) return;
   renderPcSettings();
-  renderLinks(state.links || []);
+  hmHealth();
   pjStateChanged();
+  const help = $("#help-https"), hub = hubHttps();
+  if (help && hub && help.dataset.url !== hub) {
+    help.dataset.url = hub;
+    help.innerHTML = `<a href="${esc(hub)}">${esc(hub.replace(/^https:\/\//, "").replace(/\/$/, ""))}</a>`;
+  }
   $("#machines").innerHTML = state.machines.map(renderMachine).join("");
   const all = state.machines.flatMap(m => (m.problems || []).map(p => ({ ...p, machine: m.name })));
   const a = $("#alert");
@@ -1270,7 +1332,7 @@ document.addEventListener("toggle", e => {
   if (d.dataset && d.dataset.earlier) d.open ? earlierOpen.add(d.dataset.earlier) : earlierOpen.delete(d.dataset.earlier);
 }, true);
 $("#alert").addEventListener("click", () => {
-  showView("overview");
+  showView("machines");
   const first = document.querySelector(".problem");
   if (first) first.scrollIntoView({ behavior: "smooth", block: "center" });
 });
@@ -1637,10 +1699,10 @@ function micUi() {
 async function micToggle(target, base) {
   if (mic) { if (!mic.busy && mic.mr.state !== "inactive") mic.mr.stop(); return; }
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-    const https = (state?.links || []).find(l => l.name === "AI Hub" && l.url.startsWith("https:"));
+    const https = hubHttps();
     if (!https) { toast("Browsers only allow the mic on an https page, and this one is plain http", true); return; }
     if (confirm("Browsers only allow the mic on a secure (https) page, and this one is plain http.\n\nOpen the AI Hub's https address instead? Anything typed here and not yet added is lost."))
-      location.href = https.url.replace(/\/$/, "") + "/" + location.hash;
+      location.href = https.replace(/\/$/, "") + "/" + location.hash;
     return;
   }
   let stream;
@@ -1792,7 +1854,7 @@ docsArea.addEventListener("drop", e => {
 let tg = null, tgBase = "", tgTimer = null, tgSeen = "", tgNewTok = false, tgCode = "";
 const tgTime = ts => new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const tgLinkify = t => esc(t).replace(/https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"]/g, u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
-const tgHubUrl = () => ((state?.links || []).find(l => l.name === "AI Hub" && l.url.startsWith("https:"))?.url) || location.origin + "/";
+const tgHubUrl = () => hubHttps() || location.origin + "/";
 function tgDay(d) {
   const today = new Date(), y = new Date(Date.now() - 86400000);
   if (d.toDateString() === today.toDateString()) return "Today";
@@ -2394,10 +2456,15 @@ window.addEventListener("beforeunload", e => {
   if (Object.keys(cl.pending).length || Object.values(cl.inflight).some(Boolean)) { clFlushAll(); e.preventDefault(); e.returnValue = ""; }
 });
 
-/* ---------- projects ---------- */
-// The list lives on the server's hub (like the checklists). Each project has places to open it: web links,
-// a folder shared by a PC's hub on its files port, programs a PC may start, and folders for VS Code / Files.
+/* ---------- Home: the PCs at a glance, Everyday tiles, On the go, every program and project as a tile ----------
+   The list lives on the server's hub (projects.json, like the checklists). Each project has places to open it: web
+   links, a folder shared by a PC's hub on its files port, programs a PC may start, and folders for VS Code / Files.
+   The server's hub asks each project's address every 30 s ("status"); a project run by a container ("container")
+   shows that row's state from the 2-second readings, with Start when it's off; a program on a PC's screen shows
+   Running when its launcher's process is there. */
 const pj = { base: null, data: null, loading: false, sig: "" };
+const hm = { timer: null, todoAt: 0, cls: null, docs: null };
+const PJ_FOLDED = ["Older projects", "Trying out"];   // folded until opened (remembered in this browser)
 const pjHome = path => String(path || "").replace(/^\/home\/[^/]+/, "~");
 const pjMachine = name => (state?.machines || []).find(m => m.name === name);
 const pjFind = id => (pj.data?.projects || []).find(p => p.id === id);
@@ -2407,6 +2474,15 @@ function pjOff(m, pc) {
   if (!m.online) return `${pc} is off or not answering`;
   return "";
 }
+function homeLoad() {
+  clearTimeout(hm.timer);
+  if (document.visibilityState === "visible") {
+    pjLoad();
+    if (Date.now() - hm.todoAt > 60000) hmTodoLoad();
+  }
+  hm.timer = setTimeout(() => { if (!$("#view-home").hidden) homeLoad(); }, 20000);
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && !$("#view-home").hidden) homeLoad(); });
 async function pjLoad() {
   if (pj.loading) return;
   pj.loading = true;
@@ -2419,12 +2495,86 @@ async function pjLoad() {
     if (j.error) throw new Error(j.error);
     if (pj.base === null) pj.base = "";
     pj.data = j;
+    pj.sig = "";
     pjRender();
   } catch (err) {
-    $("#pj-list").innerHTML = `<p class="hint-muted">Can't load the projects: ${esc(err.message)}</p>`;
+    if (!pj.data) $("#pj-list").innerHTML = `<p class="hint-muted">Can't load the list: ${esc(err.message)}</p>`;
   } finally { pj.loading = false; }
 }
-/* Everywhere a project can open, in the order the chooser shows them. */
+
+/* ----- the PCs at a glance (redrawn with every 2-second reading) ----- */
+function hmHealth() {
+  $("#hm-health").innerHTML = state.machines.map(m => {
+    if (!m.online) return `<span class="hm-pc off"><span class="dot"></span>${esc(m.name)} <small>off or asleep</small>
+      ${m.can_wake ? `<button class="pill plain" data-wake="${esc(m.name)}">Wake</button>` : ""}</span>`;
+    const probs = m.problems || [], err = probs.some(p => p.level === "error");
+    const t = (v, lim) => `<b style="color:${tempColour(v, lim)}">${Math.round(v)}°</b>`;
+    const temps = [m.cpu?.temp != null ? `CPU ${t(m.cpu.temp, m.cpu.high)}` : "",
+      ...(m.gpus || []).map(g => g.temp != null ? `${esc(String(g.name).replace(/^(NVIDIA )?(GeForce )?/i, ""))} ${t(g.temp, g.slowdown)}` : "")]
+      .filter(Boolean).join(" · ");
+    return `<button class="hm-pc" data-go-machines title="${esc(probs.length ? probs.map(p => p.title).join("\n") : "Open Machines")}">
+      <span class="dot ${probs.length ? (err ? "failed" : "warn") : "on"}"></span>${esc(m.name)} <small>${temps}</small>
+      ${probs.length ? `<span class="badge ${err ? "bad" : "warn"}">${probs.length} ${probs.length === 1 ? "PROBLEM" : "PROBLEMS"}</span>` : ""}</button>`;
+  }).join("") + `<button class="hm-pc more" data-go-machines>Models and containers →</button>`;
+}
+$("#hm-health").addEventListener("click", async e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.wake) {
+    b.disabled = true;
+    try { toast((await post("api/wake", { machine: b.dataset.wake })).message); } catch (err) { toast(err.message, true); b.disabled = false; }
+  } else if (b.hasAttribute("data-go-machines")) showView("machines");
+});
+
+/* ----- On the go: unfinished checklists, then the "To do" docs (important first, then newest) ----- */
+async function hubList(path) {
+  let j = await (await fetch(path, { cache: "no-store" })).json();
+  if (j.remote) j = await (await fetch(j.remote.replace(/\/$/, "") + "/" + path, { cache: "no-store" })).json();
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+async function hmTodoLoad() {
+  hm.todoAt = Date.now();
+  const [c, d] = await Promise.allSettled([hubList("api/checklists"), hubList("api/docs")]);
+  if (c.status === "fulfilled") hm.cls = c.value.checklists || [];
+  if (d.status === "fulfilled") hm.docs = d.value.docs || [];
+  hmTodo();
+}
+function hmTodo() {
+  const lists = (hm.cls || []).filter(x => !x.archived && !x.error && !/\breplaced\b/i.test(x.title || "")
+    && (x.counts?.total || 0) > (x.counts?.done || 0));
+  const todo = (hm.docs || []).filter(d => d.group === "To do")
+    .sort((a, b) => (IMP_RANK[a.importance] ?? 1) - (IMP_RANK[b.importance] ?? 1) || docTime(b) - docTime(a));
+  const day = t => !t ? "" : new Date(t * 1000).toLocaleDateString([], { day: "numeric", month: "short" });
+  const items = [
+    ...lists.map(x => {
+      const c = x.counts || {}, pct = Math.round(100 * (c.done || 0) / c.total);
+      return `<button class="todo" data-go-cl="${esc(x.id)}" title="${esc(x.about || "")}"><span class="i" aria-hidden="true">☑</span>
+        <b>${esc(x.title)}</b><small>Checklist · ${c.done || 0} of ${c.total} done${c.problems ? ` · <span class="bad">${c.problems} ${c.problems === 1 ? "problem" : "problems"}</span>` : ""}</small>
+        <span class="todo-bar" aria-hidden="true"><i style="width:${pct}%"></i></span></button>`;
+    }),
+    ...todo.slice(0, 5).map(d => `<button class="todo" data-go-doc="${esc(docId(d))}" title="${esc(d.about || "")}"><span class="i" aria-hidden="true">📝</span>
+        <b>${esc(d.title)}</b><small>${impBadge(d)}To do · ${esc(day(d.modified))}</small></button>`),
+  ];
+  if (todo.length > 5) items.push(`<button class="todo more" data-go-docs>All ${todo.length} to-do docs →</button>`);
+  $("#hm-todo-sec").hidden = !items.length;
+  $("#hm-todo").innerHTML = items.join("");
+}
+$("#hm-todo").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.goCl) {
+    history.replaceState(null, "", "#checklist=" + encodeURIComponent(b.dataset.goCl));
+    showView("checks");
+  } else if (b.dataset.goDoc) {
+    const id = b.dataset.goDoc;
+    history.replaceState(null, "", "#doc=" + encodeURIComponent(id));
+    showView("docs");
+    if (docs) openDoc(id);   // already loaded: loadDocs only opens one when none is open
+  } else if (b.hasAttribute("data-go-docs")) showView("docs");
+});
+
+/* ----- the places a project opens, and what a click on its tile does ----- */
 function pjOptions(p) {
   const out = [];
   for (const pl of p.places || []) {
@@ -2454,13 +2604,15 @@ function pjOptions(p) {
   if (p.github) out.push({ key: "github", sec: "work", icon: "🐙", label: "GitHub page", detail: p.github.replace(/^https:\/\//, ""), href: p.github });
   return out;
 }
-/* What ▶ Open does without asking: the remembered choice, or the only place there is. */
+/* What a click on a tile opens: the remembered choice, else the first place that's available (the list puts the
+   everyday address first). Projects with only folders open their details instead. */
 function pjPrimary(p, all = pjOptions(p)) {
   const key = (opts.pjChoice || {})[p.id];
   const kept = key && all.find(o => o.key === key);
   if (kept) return { o: kept, kept: true };
   const main = all.filter(o => o.sec !== "work");
-  return main.length === 1 ? { o: main[0], kept: false } : null;
+  const o = main.find(x => !x.off) || main[0];
+  return o ? { o, kept: false } : null;
 }
 async function pjGo(o, btn) {
   if (o.off) { toast(o.off, true); return; }
@@ -2470,67 +2622,132 @@ async function pjGo(o, btn) {
   catch (err) { toast(err.message, true); }
   finally { if (btn) btn.disabled = false; }
 }
-function pjCard(p) {
-  const all = pjOptions(p), first = pjPrimary(p, all), main = all.filter(o => o.sec !== "work");
-  const where = (p.folders || []).map(f => `${esc(f.pc)}: ${esc(pjHome(f.path))}`).join(" · ");
-  const open = !all.length ? `<button class="pill plain" disabled>Nothing to open yet</button>`
-    : first ? `<button class="pill start" data-pj-open title="${esc(first.o.label)}">▶ Open</button>${all.length > 1 ? `<button class="pill plain" data-pj-ask>Where…</button>` : ""}`
-    : `<button class="pill start" data-pj-open>${main.length ? "▶ Open…" : "📂 Open…"}</button>`;
-  return `<article class="pj${p.hidden ? " hid" : ""}" data-pj="${esc(p.id)}">
-    <div class="pj-top"><span class="pj-icon" aria-hidden="true">${esc(p.icon || "•")}</span>
-      <div class="pj-head"><div class="pj-name">${esc(p.name)}${p.hidden ? ` <span class="badge off">HIDDEN</span>` : ""}</div>
-        ${p.about ? `<p class="pj-about">${esc(p.about)}</p>` : ""}</div>
-      <button class="pen" data-pj-edit title="Edit ${esc(p.name)}" aria-label="Edit ${esc(p.name)}">✎</button></div>
-    ${where ? `<div class="pj-where">${where}</div>` : ""}
-    ${p.note ? `<div class="pj-note">${esc(p.note)}</div>` : ""}
-    <div class="pj-btns">${open}${p.github ? `<a class="pj-gh" href="${esc(p.github)}" target="_blank" rel="noopener">GitHub ↗</a>` : ""}</div>
-    ${first && all.length > 1 ? `<div class="pj-remember">Opens: ${esc(first.o.label)}${first.o.off ? " (not available now)" : ""}${first.kept ? ` · <button data-pj-forget>ask every time</button>` : ""}</div>` : ""}
-  </article>`;
+/* What a tile says: its container's state, the server's last check of its address, or a program open on a PC. */
+function pjStatus(p) {
+  const st = pj.data?.status?.[p.id];
+  const checked = st ? ` · checked ${ago(st.at)}` : "";
+  if (p.container?.pc && p.container?.key) {
+    const pc = p.container.pc, m = pjMachine(pc);
+    if (state && (!m || !m.online)) return { cls: "", text: "PC off", tip: `The ${pc} is off or not answering` };
+    const r = (m?.rows || []).find(x => x.key === p.container.key);
+    if (r && r.state === "off") return { cls: "", text: "Off", tip: `Stopped on the ${pc}`, start: { machine: pc, key: r.key, name: r.name } };
+    if (r && st && !st.up) return { cls: "busy", text: "Starting…", tip: `Running on the ${pc}, but its page didn't answer yet${checked}` };
+    if (r) return { cls: "on", text: r.state === "busy" ? "Busy" : st ? "Up" : "On", tip: `Running on the ${pc}${checked}` };
+  }
+  if (st && !st.up && p.on_demand) {   // only runs when started: off is normal, not a fault
+    const run = (p.places || []).find(x => x.kind === "run");
+    return { cls: "", text: "Off", tip: "Not running" + checked,
+      start: run ? { launch: { machine: run.pc, run: run.run }, machine: run.pc, name: p.name } : null };
+  }
+  if (st) return st.up ? { cls: "on", text: "Up", tip: "It answered" + checked } : { cls: "failed", text: "Not answering", tip: "It didn't answer" + checked };
+  for (const x of p.places || [])
+    if (x.kind === "run" && (pjMachine(x.pc)?.projects?.running || []).includes(x.run)) return { cls: "on", text: "Running", tip: `Open on the ${x.pc}'s screen` };
+  return null;
 }
+const pjIcon = p => p.logo ? `<img src="icons/${encodeURIComponent(p.logo)}" alt="">` : esc(p.icon || "•");
+function pjTile(p, big) {
+  const s = pjStatus(p), first = pjPrimary(p);
+  return `<div class="tile${big ? " big" : ""}${p.hidden ? " hid" : ""}" data-pj="${esc(p.id)}">
+    <button class="tile-main" data-pj-open title="${esc(first ? `Open: ${first.o.label}${first.o.off ? ` (${first.o.off})` : ""}` : "Show where it is")}">
+      <span class="tile-icon" aria-hidden="true">${pjIcon(p)}</span>
+      <span class="tile-name">${esc(p.name)}${p.hidden ? ` <span class="badge off">HIDDEN</span>` : ""}</span>
+      <span class="tile-about">${esc(p.about || "")}</span></button>
+    <div class="tile-side">
+      ${s ? `<span class="tstat ${s.cls}" title="${esc(s.tip || "")}"><span class="dot ${s.cls}"></span>${esc(s.text)}</span>` : ""}
+      ${s?.start ? `<button class="pill start" data-pj-start title="Start ${esc(s.start.name)} on the ${esc(s.start.machine)}">Start</button>` : ""}
+      <button class="tile-info" data-pj-info title="Everywhere it opens, its folders, pin, edit" aria-label="Details for ${esc(p.name)}">i</button>
+    </div></div>`;
+}
+const pjMatches = (p, q) => !q || [p.name, p.about, p.group, p.note, ...(p.folders || []).map(f => f.path),
+  ...(p.places || []).map(x => x.label + " " + (x.url || ""))].join(" ").toLowerCase().includes(q);
 function pjRender() {
   if (!pj.data) return;
-  const q = $("#pj-search").value.trim().toLowerCase(), showHidden = $("#pj-hidden").checked;
-  const items = pj.data.projects.filter(p => (showHidden || !p.hidden) && (!q || [p.name, p.about, p.group, p.note,
-    ...(p.folders || []).map(f => f.path), ...(p.places || []).map(x => x.label + " " + (x.url || ""))].join(" ").toLowerCase().includes(q)));
+  const all = pj.data.projects, q = $("#pj-search").value.trim().toLowerCase(), showHidden = $("#pj-hidden").checked;
+  const pins = all.filter(p => p.pinned && !p.hidden);
+  $("#hm-pins-sec").hidden = !pins.length;
+  $("#hm-pins").innerHTML = pins.map(p => pjTile(p, true)).join("");
+  const items = all.filter(p => (showHidden || !p.hidden) && pjMatches(p, q));
   const groups = [...new Set([...(pj.data.groups || []), ...items.map(p => p.group || "Other")])];
+  const fold = opts.pjFold || {};
   const html = groups.map(g => {
     const list = items.filter(p => (p.group || "Other") === g);
-    return list.length ? `<section class="pj-group"><h2 class="section-label">${esc(g)}</h2><div class="pj-grid">${list.map(pjCard).join("")}</div></section>` : "";
+    if (!list.length) return "";
+    const folded = !q && (fold[g] ?? PJ_FOLDED.includes(g));
+    return `<section class="pj-group"><h2 class="section-label"><button class="pj-fold" data-pj-fold="${esc(g)}" aria-expanded="${!folded}">
+      <span aria-hidden="true">${folded ? "▸" : "▾"}</span>${esc(g)} <span class="n">${list.length}</span></button></h2>
+      ${folded ? "" : `<div class="pj-grid">${list.map(p => pjTile(p)).join("")}</div>`}</section>`;
   }).join("");
-  const hiddenN = pj.data.projects.filter(p => p.hidden).length;
-  $("#pj-list").innerHTML = html || `<div class="empty">${q ? "No projects match." : "No projects yet. ＋ Add project adds one."}</div>`;
+  const hiddenN = all.filter(p => p.hidden).length;
+  $("#pj-list").innerHTML = html || `<div class="empty">${q ? "Nothing matches." : "Nothing here yet. ＋ Add adds one."}</div>`;
   $("#pj-hidden").parentElement.title = hiddenN ? `${hiddenN} hidden` : "None hidden";
 }
-/* The 2-second readings say which PCs are up and what each one offers; redraw only when that changes. */
+/* The 2-second readings say which PCs are up, what each offers and how the containers are; redraw only when that changes. */
 function pjStateChanged() {
-  const sig = JSON.stringify((state?.machines || []).map(m => [m.name, !!m.online, m.projects || null]));
+  const keys = new Set((pj.data?.projects || []).map(p => p.container?.key).filter(Boolean));
+  const sig = JSON.stringify((state?.machines || []).map(m => [m.name, !!m.online, m.projects || null,
+    (m.rows || []).filter(r => keys.has(r.key)).map(r => [r.key, r.state])]));
   if (sig === pj.sig) return;
   pj.sig = sig;
-  if (pj.data && !$("#view-projects").hidden) pjRender();
+  if (pj.data && !$("#view-home").hidden) pjRender();
 }
-function pjAsk(p) {
-  const d = $("#pj-where"), all = pjOptions(p), kept = (opts.pjChoice || {})[p.id];
+const pjFields = (p, over) => ({ id: p.id, name: p.name, icon: p.icon || "", about: p.about || "", group: p.group || "",
+  github: p.github || "", hidden: !!p.hidden, pinned: !!p.pinned,
+  links: (p.places || []).filter(x => x.kind === "web").map(x => ({ label: x.label, url: x.url })), ...over });
+async function pjStart(p, btn) {
+  const s = pjStatus(p)?.start;
+  if (!s) return;
+  if (btn) btn.disabled = true;
+  try {
+    toast((s.launch ? await post("api/launch", s.launch) : await post("api/action", { machine: s.machine, key: s.key, action: "start" })).message);
+    setTimeout(poll, 300);
+  }
+  catch (err) { toast(err.message, true); if (btn) btn.disabled = false; }
+}
+/* The details box: what the old project card showed, every place it opens, pin and edit. */
+function pjInfo(p) {
+  const d = $("#pj-where"), all = pjOptions(p), kept = (opts.pjChoice || {})[p.id], s = pjStatus(p), first = pjPrimary(p, all);
   const secs = [["browser", "In this browser"], ["screen", "On a PC's screen"], ["work", "Work on it"]];
   d.innerHTML = `<div class="pj-in">
-    <h2 id="pj-where-h">${esc(p.icon || "")} Where should ${esc(p.name)} open?</h2>
+    <div class="pj-info-head"><span class="tile-icon" aria-hidden="true">${pjIcon(p)}</span>
+      <div class="pj-head"><h2 id="pj-where-h">${esc(p.name)}${p.hidden ? ` <span class="badge off">HIDDEN</span>` : ""}</h2>
+        ${p.about ? `<p class="pj-about">${esc(p.about)}</p>` : ""}</div></div>
+    ${p.note ? `<div class="pj-note">${esc(p.note)}</div>` : ""}
+    ${s ? `<div class="pj-stat"><span class="tstat ${s.cls}"><span class="dot ${s.cls}"></span>${esc(s.text)}</span><span>${esc(s.tip || "")}</span>
+      ${s.start ? `<button class="pill start" data-pj-start>Start</button>` : ""}</div>` : ""}
     ${secs.map(([sec, title]) => {
       const list = all.map((o, i) => [o, i]).filter(([o]) => o.sec === sec);
       return list.length ? `<div class="section-label">${title}</div><div class="pj-opts">${list.map(([o, i]) => `
         <button type="button" class="pj-opt" data-pj-opt="${i}"${o.off ? ` aria-disabled="true"` : ""}>
-          <span class="i" aria-hidden="true">${o.icon}</span><b>${esc(o.label)}${o.key === kept ? " ✓" : ""}</b><small>${esc(o.off || o.detail)}</small></button>`).join("")}</div>` : "";
+          <span class="i" aria-hidden="true">${o.icon}</span><b>${esc(o.label)}${first && o.key === first.o.key ? " ✓" : ""}</b><small>${esc(o.off || o.detail)}</small></button>`).join("")}</div>` : "";
     }).join("")}
-    ${all.length ? `<label class="pj-check"><input type="checkbox" id="pj-rem"${kept ? " checked" : ""}> Remember my choice (▶ Open goes straight there)</label>`
-      : `<p class="hint-muted">Nothing to open yet. ✎ adds a web link.</p>`}
-    <div class="pj-end"><button type="button" class="pill plain" data-pj-close>Cancel</button></div></div>`;
-  d.onclick = e => {
-    if (e.target === d || e.target.closest("[data-pj-close]")) { d.close(); return; }   // the backdrop, or Cancel
+    ${all.some(o => o.sec !== "work") ? `<label class="pj-check"><input type="checkbox" id="pj-rem"${kept ? " checked" : ""}> Remember my choice: a click on the tile opens it (this browser only). ✓ = what a click opens now.</label>`
+      : all.length ? "" : `<p class="hint-muted">Nothing to open yet. ✎ Edit adds a web link.</p>`}
+    <div class="pj-end"><button type="button" class="pill plain" data-pj-pin>${p.pinned ? "★ Unpin from Everyday" : "☆ Pin to Everyday"}</button>
+      <button type="button" class="pill plain" data-pj-edit>✎ Edit</button><span class="spacer"></span>
+      <button type="button" class="pill plain" data-pj-close>Close</button></div></div>`;
+  d.onclick = async e => {
+    if (e.target === d || e.target.closest("[data-pj-close]")) { d.close(); return; }   // the backdrop, or Close
+    if (e.target.closest("[data-pj-edit]")) { d.close(); pjEdit(p); return; }
+    if (e.target.closest("[data-pj-start]")) { await pjStart(p, e.target.closest("button")); d.close(); return; }
+    const pin = e.target.closest("[data-pj-pin]");
+    if (pin) {
+      pin.disabled = true;
+      try {
+        await post((pj.base ?? "") + "api/projects/save", { project: pjFields(p, { pinned: !p.pinned }) });
+        toast(p.pinned ? `${p.name} is off Everyday` : `${p.name} is on Everyday`);
+        d.close(); pjLoad();
+      } catch (err) { toast(err.message, true); pin.disabled = false; }
+      return;
+    }
     const b = e.target.closest("[data-pj-opt]");
     if (!b) return;
     const o = all[+b.dataset.pjOpt];
     if (o.off) { toast(o.off, true); return; }
-    opts.pjChoice = { ...(opts.pjChoice || {}) };
-    if ($("#pj-rem", d)?.checked) opts.pjChoice[p.id] = o.key; else delete opts.pjChoice[p.id];
-    saveOpts();
+    if (o.sec !== "work") {
+      opts.pjChoice = { ...(opts.pjChoice || {}) };
+      if ($("#pj-rem", d)?.checked) opts.pjChoice[p.id] = o.key; else delete opts.pjChoice[p.id];
+      saveOpts();
+    }
     d.close();
     pjGo(o);
     pjRender();
@@ -2540,23 +2757,24 @@ function pjAsk(p) {
 }
 function pjEdit(p) {
   const d = $("#pj-edit"), isNew = !p;
-  p = p || { name: "", icon: "", about: "", group: "", github: "", hidden: false, places: [], folders: [] };
+  p = p || { name: "", icon: "", about: "", group: "", github: "", hidden: false, pinned: false, places: [], folders: [] };
   const links = (p.places || []).filter(x => x.kind === "web").map(x => `${x.label} | ${x.url}`).join("\n");
   const fixed = [...(p.places || []).filter(x => x.kind !== "web").map(x => `${x.kind === "run" ? "▶" : "🖥"} ${x.label} (${x.pc})`),
     ...(p.folders || []).map(f => `📂 ${f.pc}: ${pjHome(f.path)}`)];
   const groups = [...new Set([...(pj.data?.groups || []), ...(pj.data?.projects || []).map(x => x.group).filter(Boolean)])];
   d.innerHTML = `<form class="pj-in">
-    <h2 id="pj-edit-h">${isNew ? "Add a project" : "Edit " + esc(p.name)}</h2>
+    <h2 id="pj-edit-h">${isNew ? "Add a program or project" : "Edit " + esc(p.name)}</h2>
     <div class="pj-two"><label class="pj-f">Icon<input name="icon" maxlength="8" value="${esc(p.icon)}" placeholder="🙂" autocomplete="off"></label>
       <label class="pj-f">Name<input name="name" maxlength="60" required value="${esc(p.name)}" autocomplete="off"></label></div>
     <label class="pj-f">What it is<textarea name="about" maxlength="300" rows="2">${esc(p.about)}</textarea></label>
     <label class="pj-f">Group<input name="group" maxlength="40" list="pj-groups" value="${esc(p.group)}" autocomplete="off">
       <datalist id="pj-groups">${groups.map(g => `<option value="${esc(g)}">`).join("")}</datalist></label>
     <label class="pj-f">Web links<textarea name="links" rows="3" placeholder="Website | https://example.com">${esc(links)}</textarea>
-      <span class="pj-hint">One per line: a name, a bar ( | ), then the address.</span></label>
+      <span class="pj-hint">One per line: a name, a bar ( | ), then the address. The first one is what a click on the tile opens.</span></label>
     <label class="pj-f">GitHub page<input name="github" maxlength="500" value="${esc(p.github)}" placeholder="https://github.com/…" autocomplete="off"></label>
     ${fixed.length ? `<div><div class="section-label">Set up on the PCs</div><p class="pj-hint">${fixed.map(esc).join("<br>")}</p>
-      <p class="pj-hint">Programs, shared folders and project folders are set in each PC's hub settings: ask Claude to change them.</p></div>` : ""}
+      <p class="pj-hint">Programs, shared folders, project folders, status checks and Start buttons are set by hand: ask Claude to change them.</p></div>` : ""}
+    <label class="pj-check"><input type="checkbox" name="pinned"${p.pinned ? " checked" : ""}> Pin to Everyday (a big tile at the top)</label>
     <label class="pj-check"><input type="checkbox" name="hidden"${p.hidden ? " checked" : ""}> Hide it (Show hidden brings it back)</label>
     <div class="pj-end">${isNew ? "" : `<button type="button" class="pill stop" data-pj-del>Remove</button><span class="spacer"></span>`}
       <button type="button" class="pill plain" data-pj-close>Cancel</button><button type="submit" class="pill start">Save</button></div>
@@ -2572,14 +2790,14 @@ function pjEdit(p) {
     btn.disabled = true;
     try {
       const r = await post((pj.base ?? "") + "api/projects/save", { project: { id: isNew ? undefined : p.id, name: f.get("name"), icon: f.get("icon"),
-        about: f.get("about"), group: f.get("group"), github: f.get("github"), hidden: !!f.get("hidden"), links: linkList } });
+        about: f.get("about"), group: f.get("group"), github: f.get("github"), hidden: !!f.get("hidden"), pinned: !!f.get("pinned"), links: linkList } });
       toast(r.message); d.close(); pjLoad();
     } catch (err) { toast(err.message, true); btn.disabled = false; }
   };
   d.onclick = async e => {
     if (e.target === d || e.target.closest("[data-pj-close]")) { d.close(); return; }
     if (e.target.closest("[data-pj-del]")) {
-      if (!confirm(`Take ${p.name} off the Projects tab?\n\nIts files stay where they are. (To keep it but tuck it away, tick "Hide it" instead.)`)) return;
+      if (!confirm(`Take ${p.name} off the Home page?\n\nIts files stay where they are. (To keep it but tuck it away, tick "Hide it" instead.)`)) return;
       try { toast((await post((pj.base ?? "") + "api/projects/save", { delete: p.id })).message); d.close(); pjLoad(); }
       catch (err) { toast(err.message, true); }
     }
@@ -2587,15 +2805,20 @@ function pjEdit(p) {
   d.showModal();
   $("[name=name]", d).focus();
 }
-$("#pj-list").addEventListener("click", e => {
-  const card = e.target.closest("[data-pj]"), b = e.target.closest("button");
-  if (!card || !b || b.disabled) return;
-  const p = pjFind(card.dataset.pj);
+$("#view-home").addEventListener("click", e => {
+  const f = e.target.closest("[data-pj-fold]");
+  if (f) {   // a group's name folds or unfolds it
+    opts.pjFold = { ...(opts.pjFold || {}), [f.dataset.pjFold]: f.getAttribute("aria-expanded") === "true" };
+    saveOpts(); pjRender();
+    return;
+  }
+  const tile = e.target.closest("[data-pj]"), b = e.target.closest("button");
+  if (!tile || !b || b.disabled) return;
+  const p = pjFind(tile.dataset.pj);
   if (!p) return;
-  if (b.hasAttribute("data-pj-edit")) pjEdit(p);
-  else if (b.hasAttribute("data-pj-ask")) pjAsk(p);
-  else if (b.hasAttribute("data-pj-forget")) { opts.pjChoice = { ...(opts.pjChoice || {}) }; delete opts.pjChoice[p.id]; saveOpts(); pjRender(); }
-  else if (b.hasAttribute("data-pj-open")) { const first = pjPrimary(p); first ? pjGo(first.o, b) : pjAsk(p); }
+  if (b.hasAttribute("data-pj-info")) pjInfo(p);
+  else if (b.hasAttribute("data-pj-start")) pjStart(p, b);
+  else if (b.hasAttribute("data-pj-open")) { const first = pjPrimary(p); first ? pjGo(first.o, b) : pjInfo(p); }
 });
 $("#pj-search").addEventListener("input", pjRender);
 $("#pj-hidden").addEventListener("change", pjRender);
@@ -2614,10 +2837,17 @@ $("#o-theme").onchange = e => { opts.theme = e.target.value; saveOpts(); applyTh
 $("#o-name").value = opts.name || "";
 $("#o-name").onchange = e => { opts.name = e.target.value.trim().slice(0, 40); e.target.value = opts.name; saveOpts(); };
 
-showView(location.hash.startsWith("#doc=") ? "docs" : location.hash.startsWith("#checklist=") ? "checks"
-  : location.hash.startsWith("#guide=") ? "guides"
-  : location.hash === "#telegram" ? "telegram" : location.hash === "#projects" ? "projects"
-  : location.hash === "#doors" ? "doors" : opts.view);
+// The hub opens on Home; an address with a # opens that tab (old #projects / #overview links land on Home).
+const HASH_TABS = { "#home": "home", "#projects": "home", "#overview": "home", "#machines": "machines", "#telegram": "telegram",
+  "#doors": "doors", "#options": "options", "#docs": "docs", "#guides": "guides", "#checklists": "checks" };
+function routeHash() {
+  const h = location.hash;
+  showView(h.startsWith("#doc=") ? "docs" : h.startsWith("#checklist=") ? "checks" : h.startsWith("#guide=") ? "guides" : HASH_TABS[h] || "home");
+  if (h.startsWith("#doc=") && docs) openDoc(decodeURIComponent(h.slice(5)));   // already loaded: open this one
+}
+// A hub #… link inside the page (replaceState doesn't fire this); other # links (a doc's own anchors) are left alone.
+window.addEventListener("hashchange", () => { const h = location.hash; if (/^#(doc|checklist|guide)=/.test(h) || HASH_TABS[h]) routeHash(); });
+routeHash();
 poll();
 
 /* ---------- Login card (Options): log out ---------- */
