@@ -12,7 +12,9 @@ and starting a program (or a project folder in VS Code / Files) on this PC's scr
 - Fields set by hand in projects.json and kept when the page saves: "folders", "note", the non-web places,
   "logo" (a file in web/icons shown instead of the emoji), "container" ({"pc", "key"}: the Machines row that
   runs it, so the Home page can show Off and a Start button), "check" (the address the Checker asks instead
-  of the first web link, e.g. the LAN address behind an https name) and "check_every" (seconds).
+  of the first web link, e.g. the LAN address behind an https name), "check_every" (seconds), "check_has"
+  (text the checked page must hold to count as up, e.g. a model name in Strata's /health) with "other_text"
+  (what the tile says when the page answered without it) and "on_demand" (off is normal: grey, not red).
 """
 import html
 import ipaddress
@@ -24,7 +26,9 @@ import shutil
 import subprocess
 import threading
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -183,15 +187,30 @@ class Checker:
                 except (TypeError, ValueError):
                     continue
                 if url and p.get("id"):
-                    want[p["id"]] = url
-                    every[url] = min(every.get(url, 1e9), secs)
-            due = [u for u, secs in every.items() if u not in last or now - last[u][0] >= secs - 1]
+                    has = p.get("check_has") if isinstance(p.get("check_has"), str) and p.get("check_has") else None
+                    want[p["id"]] = key = (url, has)
+                    every[key] = min(every.get(key, 1e9), secs)
+            due = [k for k, secs in every.items() if k not in last or now - last[k][0] >= secs - 1]
             if due:
                 with ThreadPoolExecutor(8) as pool:
-                    for u, up in zip(due, pool.map(self.probe, due)):
-                        last[u] = (now, up, time.time())
-            self.status = {pid: {"up": last[u][1], "at": int(last[u][2])} for pid, u in want.items() if u in last}
+                    for k, res in zip(due, pool.map(self._ask, due)):
+                        last[k] = (now, res, time.time())
+            self.status = {pid: {**last[k][1], "at": int(last[k][2])} for pid, k in want.items() if k in last}
             time.sleep(self.POLL_S)
+
+    def _ask(self, key):
+        """{"up"} for a plain check. With "check_has" (text the page must hold, e.g. which model Strata's /health
+        names), "up" means it does, and "answered" says whether the page answered at all."""
+        url, has = key
+        if not has:
+            return {"up": bool(self.probe(url))}
+        try:
+            with urllib.request.urlopen(url, timeout=3) as r:
+                return {"up": has.lower() in r.read(65536).decode("utf-8", "replace").lower(), "answered": True}
+        except urllib.error.HTTPError:
+            return {"up": False, "answered": True}
+        except Exception:
+            return {"up": False, "answered": False}
 
     def snapshot(self):
         return dict(self.status)

@@ -810,9 +810,9 @@ button.hm-pc:hover, button.hm-pc:focus-visible { border-color: var(--faint); out
         <h3>Home</h3>
         <ul>
           <li>The strip at the top has one chip per PC: its temperatures and any problems. A click opens <b>Machines</b>; a PC that's off offers <b>Wake</b>.</li>
-          <li><b>Test Tag &amp; Repair</b> and <b>Chook Nation</b> sit right at the top, above Everyday (the <code>top</code> list in projects.json says which groups; ask Claude to change it). A pinned program in one of them isn't shown again in Everyday.</li>
+          <li><b>Test Tag &amp; Repair</b>, <b>Chook Nation</b> and <b>AI portals</b> sit right at the top, above Everyday (the <code>top</code> list in projects.json says which groups; ask Claude to change it). A pinned program in one of them isn't shown again in Everyday.</li>
           <li>Every other program and project is a tile, in groups, with a search box. <b>Older projects</b> and <b>Trying out</b> start folded; a click on a group's name folds or unfolds it (remembered in this browser).</li>
-          <li>A click on a tile opens it: in a new tab for a web page, or on a PC's screen for a program. The dot says how it is: <b>Up</b> (the server asked it in the last 30 seconds and it answered), <b>Not answering</b>, <b>Off</b> with a <b>Start</b> button (a program that runs in a container; Start works like START on Machines, through the card keeper), or <b>Running</b> (a program open on a PC's screen).</li>
+          <li>A click on a tile opens it: in a new tab for a web page, or on a PC's screen for a program. The dot says how it is: <b>Up</b> (the server asked it in the last 30 seconds and it answered), <b>Not answering</b>, <b>Off</b> with a <b>Start</b> button (a program that runs in a container; Start works like START on Machines, through the card keeper), <b>Running</b> (a program open on a PC's screen), or <b>Other model on</b> (the two Strata tiles: Strata is running its other model; only one fits at a time).</li>
           <li><b>i</b> on a tile shows everything about it: every place it opens (<b>In this browser</b>, <b>On a PC's screen</b>, <b>Work on it</b> = its folder in VS Code or Files, or GitHub), its folders and notes. Tick <b>Remember my choice</b> and a click on the tile goes there from then on (this browser only); ✓ marks what a click opens.</li>
           <li><b>☆ Pin to Everyday</b> in the same box puts a program in the big tiles at the top (every device sees the same ones). <b>✎ Edit</b> changes its name, icon, what it is, group, web links and GitHub link, or hides it. <b>＋ Add</b> adds one with web links. Programs, shared folders, project folders, status checks and Start buttons are set by hand, so ask Claude for those.</li>
           <li>Links are the ones that work anywhere on Tailscale (the <b>…testtagrepair.co.nz</b> names where there's one). A second <b>Home network</b> address is there for when Tailscale is off; it only works from the main PC (the server's firewall lets other home devices use SSH only).</li>
@@ -2636,6 +2636,8 @@ function pjStatus(p) {
     if (r && st && !st.up) return { cls: "busy", text: "Starting…", tip: `Running on the ${pc}, but its page didn't answer yet${checked}` };
     if (r) return { cls: "on", text: r.state === "busy" ? "Busy" : st ? "Up" : "On", tip: `Running on the ${pc}${checked}` };
   }
+  if (st && !st.up && st.answered)   // "check_has": its page answered, but with something else on (Strata's other model)
+    return { cls: "", text: p.other_text || "Not loaded", tip: "Its page answered, but this one isn't the one on" + checked };
   if (st && !st.up && p.on_demand) {   // only runs when started: off is normal, not a fault
     const run = (p.places || []).find(x => x.kind === "run");
     return { cls: "", text: "Off", tip: "Not running" + checked,
