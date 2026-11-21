@@ -45,6 +45,7 @@ import aimon_core as core  # noqa: E402
 import card  # noqa: E402
 import checklists  # noqa: E402
 import projects  # noqa: E402
+import quick  # noqa: E402
 import health  # noqa: E402
 import sysmon  # noqa: E402
 import telegram_hub  # noqa: E402
@@ -84,6 +85,10 @@ DEFAULTS = {
                                   # Docker networks (172.16/12) are left out; add one only for a proxy
                                   # in front of the hub (the server lists ttr-door's 172.19.0.0/16).
     "telegram_reply_urls": ["http://127.0.0.1:8766/"],   # where the bot may pass on your answers (TTR)
+    "quick_hubs": [],        # [["example.com", "https://hub.example.com/"]]: the hub whose pop-up the quick button
+                             # (quick.js) opens on pages at that host or under that domain. It has to be the same site
+                             # as the page, or the browser won't send the hub's login. This PC's https_url, lan_ip,
+                             # peers and localhost are added by themselves (quick_rules).
 }
 POLL_S = 2
 LINK_POLL_S = 15
@@ -91,6 +96,9 @@ PEER_TIMEOUT = 1.5
 FAILED_SHOW_S = 30
 PAGE = os.path.join(HERE, "web", "index.html")
 LOGIN_PAGE = os.path.join(HERE, "web", "login.html")
+QUICK_JS = os.path.join(HERE, "web", "quick.js")             # the quick button any page can load (no login)
+QUICK_PAGE = os.path.join(HERE, "web", "quick.html")         # its pop-up, shown in a frame on those pages
+MANIFEST = os.path.join(HERE, "web", "manifest.webmanifest")  # "Add to Home screen" on a phone
 PROXY_LIMIT = 40 * 1024 * 1024   # biggest request passed on to the other hub (an upload, recording or picture)
 
 
@@ -105,7 +113,57 @@ def load_config():
     if cfg["docs_dir"]:
         cfg["docs_dir"] = os.path.expanduser(cfg["docs_dir"])
     check_lan_ip(cfg)
+    cfg["quick_rules"] = quick_rules(cfg)
+    cfg["quick_frame"] = quick_frame_ancestors(cfg["quick_rules"])
     return cfg
+
+
+def quick_rules(cfg):
+    """[(page host or domain, hub address)]: which hub's pop-up the quick button opens on a page, so the hub's
+    login reaches it (the browser only sends it to a frame on the same site: the same host, any port, or the
+    same domain). Config "quick_hubs" first, then this hub's https name, its home-network address, localhost
+    (the browser's own PC) and its peers' hubs. The first rule for a host wins; pages elsewhere use the hub
+    quick.js came from."""
+    rules = []
+    for r in cfg.get("quick_hubs") or []:
+        if isinstance(r, (list, tuple)) and len(r) == 2 and r[0] and r[1]:
+            rules.append((str(r[0]).lower().strip(". "), str(r[1]).rstrip("/") + "/"))
+    if cfg.get("https_url"):
+        host = urllib.parse.urlsplit(cfg["https_url"]).hostname
+        if host:
+            rules.append((host.lower(), cfg["https_url"].rstrip("/") + "/"))
+    if cfg.get("lan_ip"):
+        rules.append((cfg["lan_ip"], f"http://{cfg['lan_ip']}:{cfg['port']}/"))
+    for host in ("localhost", "127.0.0.1"):   # the browser's own PC: its hub (both PCs use the same port)
+        rules.append((host, f"http://{host}:{cfg['port']}/"))
+    for p in cfg.get("peers") or []:
+        u = urllib.parse.urlsplit(p.get("url") or "")
+        if u.hostname and u.scheme in ("http", "https"):
+            rules.append((u.hostname.lower(), f"{u.scheme}://{u.netloc}/"))
+    out, seen = [], set()
+    for host, hub in rules:
+        if host and host not in seen and re.fullmatch(r"[a-z0-9.-]+", host):
+            seen.add(host)
+            out.append((host, hub))
+    return out
+
+
+def quick_frame_ancestors(rules):
+    """The CSP that lets pages at the quick_rules addresses (any port, http or https, and a domain's
+    subdomains) show the pop-up in a frame. Every other page of the hub stays unframeable."""
+    src = ["'self'"]
+    for host, _ in rules:
+        for scheme in ("http", "https"):
+            src.append(f"{scheme}://{host}:*")
+            if not re.fullmatch(r"[\d.]+", host) and host != "localhost" and "." in host:
+                src.append(f"{scheme}://*.{host}:*")
+    return "frame-ancestors " + " ".join(dict.fromkeys(src))
+
+
+def quick_host_ok(host):
+    """Whether a page's host is one the quick button's rules know (it may count a visit)."""
+    host = (host or "").lower()
+    return any(host == k or host.endswith("." + k) for k, _ in CFG["quick_rules"])
 
 
 def check_lan_ip(cfg):
@@ -1095,7 +1153,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def send_file(self, path, ctype=None):
+    def send_file(self, path, ctype=None, frame_ancestors=None):
         try:
             with open(path, "rb") as f:
                 body = f.read()
@@ -1110,7 +1168,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
         if ctype.startswith("text/html"):
-            self.send_header("X-Frame-Options", "SAMEORIGIN")   # no other site can show the hub in a frame
+            if frame_ancestors:   # the quick button's pop-up: only our own pages may show it in a frame
+                self.send_header("Content-Security-Policy", frame_ancestors)
+            else:
+                self.send_header("X-Frame-Options", "SAMEORIGIN")   # no other site can show the hub in a frame
             self.send_header("Referrer-Policy", "same-origin")
         self.end_headers()
         self.wfile.write(body)
@@ -1142,6 +1203,31 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return False
         return any(ip in net for net in CFG["allow"])
+
+    def quick_origin_ok(self):
+        """A page with the quick button telling its hub it was opened: any page at an address the quick rules
+        know (TTR, Open WebUI, …), not only hub pages. It only adds to a count, and needs the hub's login."""
+        origin = self.headers.get("Origin")
+        return not origin or quick_host_ok(urllib.parse.urlsplit(origin).hostname)
+
+    def send_quick_js(self):
+        """quick.js with this hub's rules filled in (which hub's pop-up a page at each address uses)."""
+        try:
+            with open(QUICK_JS, encoding="utf-8") as f:
+                src = f.read()
+        except OSError:
+            self.send_json({"error": "Not found"}, 404)
+            return
+        conf = {"hubs": CFG["quick_rules"]}
+        body = src.replace("/*HUB-CONFIG*/null", json.dumps(conf), 1).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/javascript; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cross-Origin-Resource-Policy", "cross-origin")   # pages on other addresses load it
+        self.end_headers()
+        self.wfile.write(body)
 
     def who(self, req):
         """Name shown on a comment: the one the page sends, else the PC it came from."""
@@ -1197,7 +1283,8 @@ class Handler(BaseHTTPRequestHandler):
         """The hub that keeps this part (docs, checklists, projects list, Telegram, dictation) when this
         one doesn't. The page then only ever talks to the hub it was opened from."""
         docs = None if CFG["docs_dir"] else CFG["docs_url"]
-        if docs and (path in ("/api/docs", "/api/projects", "/api/projects/save", "/api/checklists")
+        if docs and (path in ("/api/docs", "/api/projects", "/api/projects/save", "/api/checklists",
+                              "/api/quick", "/api/quick/use")
                      or path.startswith(("/api/docs/", "/docs/", "/api/checklists/"))):
             return docs
         tg = CFG["telegram_url"] or CFG["docs_url"]
@@ -1295,6 +1382,15 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/icons/") and re.fullmatch(r"[\w.-]+\.(png|svg)", path[7:]):
             self.send_file(os.path.join(HERE, "web", "icons", path[7:]))   # link logos, e.g. the TTR app's
             return
+        if path == "/quick.js":   # the quick button, for any of our pages (it holds no data; its pop-up needs the login)
+            self.send_quick_js()
+            return
+        if path in ("/quick", "/quick.html"):   # the pop-up: asks for the login itself, so it can show the password box
+            self.send_file(QUICK_PAGE, "text/html", frame_ancestors=CFG["quick_frame"])
+            return
+        if path == "/manifest.webmanifest":   # a phone's "Add to Home screen" reads it before any login
+            self.send_file(MANIFEST, "application/manifest+json")
+            return
         if path == "/api/auth":   # the login page asks whether it's needed
             self.send_json({"logged_in": self.authed(), "name": CFG["name"], "has_password": AUTH.has_password()})
             return
@@ -1353,6 +1449,16 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({**projects.load(CFG["docs_dir"]), "status": PJCHECK.snapshot() if PJCHECK else {}})
                 except ValueError as e:
                     self.send_json({"error": str(e)}, 500)
+        elif path == "/api/quick":   # the quick button's list: the 10 most used, and which one the page is
+            if not CFG["docs_dir"]:
+                self.send_json({"items": [], "remote": CFG["docs_url"]})
+            else:
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                try:
+                    self.send_json({**quick.top(CFG["docs_dir"], here=(q.get("from") or [None])[0]),
+                                    "status": PJCHECK.snapshot() if PJCHECK else {}})
+                except ValueError as e:
+                    self.send_json({"error": str(e)}, 500)
         elif path == "/api/checklists":   # the Checklists tab: kept in the docs folder, like the docs
             if not CFG["docs_dir"]:
                 self.send_json({"checklists": [], "remote": CFG["docs_url"]})
@@ -1382,10 +1488,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed():
             return
-        if not self.origin_ok():
+        path = self.path.split("?", 1)[0]
+        if not self.origin_ok() and not (path == "/api/quick/use" and self.quick_origin_ok()):
             self.send_json({"ok": False, "error": "Not allowed from that page"}, 403)
             return
-        path = self.path.split("?", 1)[0]
         try:
             if path in ("/api/login", "/api/logout"):
                 self.login_post(path)
@@ -1423,6 +1529,16 @@ class Handler(BaseHTTPRequestHandler):
                 if n > MAX_AUDIO:
                     raise ValueError("That recording is too long (about 10 minutes at most)")
                 self.send_json({"ok": True, "text": transcribe(self.rfile.read(n))})
+                return
+            if path == "/api/quick/use":   # a program opened from the quick button or Home, or a page with the button
+                if not CFG["docs_dir"]:
+                    raise ValueError("This hub doesn't keep the usage counts")
+                req = self.body(8192)
+                pid = req.get("id") if isinstance(req.get("id"), str) and req.get("id") else None
+                url = req.get("url") if isinstance(req.get("url"), str) else None
+                if not pid and not url:
+                    raise ValueError("Say which program (id) or page (url)")
+                self.send_json({"ok": True, **quick.record(CFG["docs_dir"], pid=pid, url=url, how=req.get("how"))})
                 return
             req = self.body()
             if self.path == "/api/projects/save":
