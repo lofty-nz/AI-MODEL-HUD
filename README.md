@@ -1,6 +1,25 @@
-# aimon
+# AI Model HUD
 
-An always-on-top desktop panel for Linux that shows which local AI models are running, with START and STOP buttons for each one. It's a companion to the sysmon badge and has the same look.
+**An always-on-top Linux panel that shows which local AI models are loaded or busy, with START and STOP buttons for each one.**
+
+![AI Model HUD: the panel with rows for FLUX pictures, Docling, Ollama and its models, and Open WebUI, each with a status pill and a START or STOP button, plus the one-line mini HUD](docs/banner.jpg)
+
+The program is called **AI Model Monitor**, and its files are named **aimon** (`aimon_gui.py`, settings in `~/.config/aimon-gui/`). It's a companion to the [PC Load HUD](https://github.com/lofty-nz/PC-LOAD-HUD) badge (sysmon) and has the same look.
+
+- **Every model in plain English:** each Docker container is a row, its Ollama models sit under it, and each row gets a name you choose and a short tag saying what it's for.
+- **OFF, ON, LOADED or BUSY:** a pill on every row says at a glance what each model is doing.
+- **START and STOP:** start or stop a container, or load or unload an Ollama model, with one button.
+- **Readings:** GPU and CPU temperature and load, VRAM and RAM, and how much memory each row holds.
+- **Mini HUD:** the **HUD** button shrinks it to one see-through line of what's loaded, busy ones first.
+- **AI Hub:** `aihub.py` puts the same rows on a web page for every PC at once.
+
+<p align="center"><img src="docs/panel.png" width="460" alt="The AI Model HUD panel"></p>
+
+![The mini HUD: one line with the loaded models, VRAM, RAM, GPU and CPU](docs/mini-hud.png)
+
+<sub>These pictures were drawn by the panel's own drawing code, with sample rows.</sub>
+
+## Features in detail
 
 - **Plain-English rows:** every Docker container is a row, and each installed Ollama model is listed under its Ollama container. A row's name comes from `~/.config/aimon/names.json` (`{"<row key>": {"title": "Qwen3.5 vision", "use": "<web page>"}}`, one file per PC; `"use": "none"` for helpers with nothing to open), with what it's for in a grey tag under it (`~/.config/aimon/labels.json`, ✎ to change) and then its technical name.
 - **Status at a glance:** a pill on each row says **OFF**, **ON**, **LOADED** (a model in memory, on the card or in RAM, doing nothing) or **BUSY** (pulsing orange: its programs are using the graphics card over 10% or the CPU, from `nvidia-smi pmon` and the container's cgroup, or Strata is answering a chat). Hover for which. The mini HUD lists the loaded models with the busy ones first.
