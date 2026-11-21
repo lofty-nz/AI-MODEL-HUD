@@ -22,6 +22,7 @@
   var CONF = /*HUB-CONFIG*/null;
   var me = document.currentScript;
   if (!me || window.top !== window) return;                      // not inside frames
+  if (window.obsstudio) return;                                  // never on a live stream (an OBS browser source)
   if (document.querySelector("aihub-quick")) return;             // already on this page
   var root0 = document.createElement("aihub-quick");
   if (!root0.attachShadow) return;                               // a very old browser: no button at all
