@@ -275,6 +275,24 @@ def ollama_rows(chat, host):
     return rows
 
 
+def group_of(row):
+    """Which group a row belongs to: chat, image, voice, music, or None for non-AI rows."""
+    if row["kind"] == "ollama":
+        return "chat"   # Ollama models are the chat backend (some also understand images)
+    if row["kind"] == "comfy":
+        return "image"  # ComfyUI's "Image models" row
+    image = (row.get("image") or "").lower()
+    if any(w in image for w in ("comfyui", "a-eye", "flux", "diffusion", "sdxl", "stable-diffusion")):
+        return "image"
+    if any(w in image for w in ("kokoro", "chatterbox", "whisper", "tts", "speech", "voice", "audio")):
+        return "voice"
+    if any(w in image for w in ("ace-step", "music", "suno", "bark", "audiocraft")):
+        return "music"
+    if any(w in image for w in ("ollama", "open-webui", "strata", "jev", "llama", "qwen")):
+        return "chat"
+    return None
+
+
 def read_rows(web):
     """Every row in the panel, top to bottom. Raises RuntimeError or OSError when Docker can't be reached.
 
@@ -338,6 +356,7 @@ def read_rows(web):
         use = str(named.get("use") or "")
         r["use"] = use if use and use != "none" else None   # the web page to use it on (Open WebUI, its own page)
         r["nolink"] = use == "none"                          # a helper with nothing to use it on
+        r["group"] = group_of(r)
     return rows
 
 

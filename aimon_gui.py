@@ -52,7 +52,8 @@ DEFAULTS = {"refresh_s": 2.0, "scale": 1.0, "on_top": True, "x": None, "y": None
             "startup_load": None,   # row key loaded when the panel starts, such as "ollama:qwen3:14b"
             "web": {},              # container name -> whether its port serves a web page, learned as they run
             "hub_url": "http://192.168.50.235:8090/",   # the AI Hub web page (WEB button)
-            "mini": False, "hud_scale": 1.0, "hud_x": None, "hud_y": None}   # mini HUD strip and where it sits
+            "mini": False, "hud_scale": 1.0, "hud_x": None, "hud_y": None,   # mini HUD strip and where it sits
+            "view": None}           # None = this PC; else the name of another PC's AI Hub (peers in the hub config)
 MIN_SCALE, MAX_SCALE = 0.7, 2.0
 AUTOSTART = os.path.expanduser("~/.config/autostart/aimon-gui.desktop")
 FAILED_SHOW_S = 30       # how long a failed start or stop stays on its row
@@ -85,6 +86,12 @@ STOP_BTN = (0.55, 0.19, 0.18)
 BUSY_BTN = (0.22, 0.24, 0.28)
 LINK = (0.45, 0.70, 0.98)
 WORKING = (0.95, 0.55, 0.13)   # the BUSY pill
+REMOTE = (0.52, 0.62, 1.0)     # title and border while showing another PC
+
+# Row groups, by what the model is for. Each group is collapsible in the panel.
+GROUP_ORDER = ["chat", "image", "voice", "music", "other"]
+GROUP_NAMES = {"chat": "Chat", "image": "Image", "voice": "Voice", "music": "Music", "other": "Other"}
+GROUP_H = 30                   # group header height at scale 1
 
 
 def load_settings():
@@ -119,6 +126,9 @@ class Monitor:
         self.pending = {}   # row key -> what's happening ("starting", a card keeper message...) or ("failed", message, time)
         self.wake = threading.Event()
         self.hub = self._hub()
+        self.me, self.peers, self.key = self._peers()
+        if settings.get("view") not in self.peers:
+            settings["view"] = None
         threading.Thread(target=self._run, daemon=True).start()
         if settings["startup_load"] and not os.path.exists(STARTED_MARK):
             # Once per login: restarting the panel later mustn't start Strata again on top of whatever is loaded.
@@ -141,9 +151,87 @@ class Monitor:
         except (OSError, ValueError):
             return None
 
+    @staticmethod
+    def _peers():
+        """(this PC's name, {other PC's name: its AI Hub URL}, hub key) from the AI Hub's config."""
+        try:
+            with open(HUB_CONFIG) as f:
+                cfg = json.load(f)
+        except (OSError, ValueError):
+            cfg = {}
+        try:
+            with open(HUB_KEY) as f:
+                key = f.read().strip()
+        except OSError:
+            key = ""
+        peers = {p["name"]: p["url"].rstrip("/") for p in cfg.get("peers", []) if p.get("name") and p.get("url")}
+        return cfg.get("name") or os.uname().nodename, peers, key
+
+    # ---- which PC the panel shows ---------------------------------------------------------------
+
+    @property
+    def view(self):
+        return self.settings.get("view")
+
+    def view_name(self):
+        return self.view or self.me
+
+    def next_view(self):
+        """The PC the switch button goes to next: this one, then each other PC in turn."""
+        order = [None] + list(self.peers)
+        return order[(order.index(self.view) + 1) % len(order)] if self.view in order else None
+
+    def switch_view(self):
+        self.settings["view"] = self.next_view()
+        with self.lock:
+            self.rows, self.error, self.memory = [], "Loading…", {}
+        save_settings(self.settings)
+        self.wake.set()
+        GLib.idle_add(self.on_update)
+
+    def pk(self, key):
+        """Key for pending work: the same row key can be on both PCs."""
+        return f"{self.view or ''}|{key}"
+
+    def remote(self, path, body=None, timeout=4):
+        """GET (or POST body to) the shown PC's AI Hub. Raises RuntimeError with the hub's own message."""
+        url = self.peers[self.view] + path
+        req = urllib.request.Request(url, None if body is None else json.dumps(body).encode(),
+                                     {"Content-Type": "application/json", "X-Hub-Key": self.key})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                data = json.load(r)
+        except urllib.error.HTTPError as e:
+            try:
+                data = json.load(e)
+            except ValueError:
+                data = {"error": f"AI Hub said {e.code}"}
+        except (OSError, ValueError) as e:
+            raise RuntimeError(f"{self.view} isn't answering ({type(e).__name__})") from e
+        if isinstance(data, dict) and data.get("ok") is False:
+            raise RuntimeError(data.get("error") or "refused")
+        return data
+
     def act(self, row, starting):
+        if self.view:   # the other PC's hub does it (through its card keeper, if it has one)
+            action = "start" if starting else "stop"
+            self.background(row["key"], f"asking {self.view} to {action} it",
+                            lambda: self.remote("/api/local/action", {"key": row["key"], "action": action}, 90))
+            return
         self.background(row["key"], "starting" if starting else "stopping",
                         lambda: self.start(row) if starting else stop_row(row))
+
+    def unload_all(self, rows):
+        if self.view:
+            self.background("*", "unloading", lambda: self.remote("/api/local/action", {"action": "unload_all"}, 60))
+        else:
+            for r in rows:
+                self.act(r, starting=False)
+
+    def set_label(self, key, text):
+        if self.view:
+            return self.remote("/api/local/label", {"key": key, "text": text}).get("message", "")
+        return set_label(key, text)
 
     def start(self, row):
         """Starts a row. One that needs most of the graphics card asks the card keeper, which makes room."""
@@ -171,7 +259,7 @@ class Monitor:
             if state == "ready":
                 return
             if state == "working":
-                self.pending[row["key"]] = msg
+                self.pending[self.pk(row["key"])] = msg
                 GLib.idle_add(self.on_update)
                 time.sleep(2)
                 continue
@@ -189,6 +277,16 @@ class Monitor:
         if not link:
             return
         u = urllib.parse.urlparse(link)
+        if self.view:
+            if u.hostname in ("127.0.0.1", "localhost"):   # a page on the other PC: use its address
+                if row.get("bind") in ("127.0.0.1", "::1") or row.get("local_only"):
+                    self.pending[self.pk(row["key"])] = ("failed", f"that page only opens on the {self.view}'s own "
+                                                         "screen", time.monotonic())
+                    GLib.idle_add(self.on_update)
+                    return
+                link = link.replace(u.hostname, urllib.parse.urlparse(self.peers[self.view]).hostname, 1)
+            open_uri(link)
+            return
         if u.hostname not in ("127.0.0.1", "localhost") or not u.port:
             open_uri(link)
             return
@@ -209,6 +307,7 @@ class Monitor:
 
     def background(self, key, label, work):
         """Runs work on its own thread, showing label on the row until it finishes, or why it failed."""
+        key = self.pk(key)
         if isinstance(self.pending.get(key), str):
             return
 
@@ -251,10 +350,38 @@ class Monitor:
                 self.act(host, starting=True)
             time.sleep(2)
 
+    def _read_remote(self):
+        """The other PC's rows and readings, from its AI Hub's /api/local."""
+        view = self.view
+        try:
+            st = self.remote("/api/local", timeout=3)
+        except RuntimeError:
+            return [], f"The {view} isn't answering. It's probably off or asleep (AI Hub can wake it).", {}
+        gpus = st.get("gpus") or []
+        memory = {"gpus": [{"name": g.get("name") or "GPU", "temp": g.get("temp"), "util": g.get("util")} for g in gpus]}
+        if st.get("ram"):
+            memory["ram"] = (st["ram"]["used"], st["ram"]["total"])
+        if gpus and all(g.get("mem_total") for g in gpus):
+            memory["vram"] = (sum(g.get("mem_used") or 0 for g in gpus) * 1024 ** 2,
+                              sum(g["mem_total"] for g in gpus) * 1024 ** 2)
+        if st.get("cpu"):
+            memory["cpu"] = {"pct": st["cpu"].get("pct"), "temp": st["cpu"].get("temp")}
+        return st.get("rows") or [], st.get("error"), memory
+
     def _run(self):
         web = self.settings["web"]
         prev_cpu = sysmon.read_cpu_times() if sysmon else None
         while True:
+            if self.view:
+                view = self.view
+                rows, error, memory = self._read_remote()
+                if view == self.view:   # not switched meanwhile
+                    with self.lock:
+                        self.rows, self.error, self.memory = rows, error, memory
+                    GLib.idle_add(self.on_update)
+                self.wake.wait(self.settings["refresh_s"])
+                self.wake.clear()
+                continue
             known = dict(web)
             try:
                 rows, error = read_rows(web), None
@@ -275,9 +402,10 @@ class Monitor:
                                       for g in sysmon.read_gpus() or []]
                 except (OSError, ValueError, KeyError, TypeError):
                     pass
-            with self.lock:
-                self.rows, self.error, self.memory = rows, error, memory
-            GLib.idle_add(self.on_update)
+            if not self.view:   # not switched meanwhile
+                with self.lock:
+                    self.rows, self.error, self.memory = rows, error, memory
+                GLib.idle_add(self.on_update)
             self.wake.wait(self.settings["refresh_s"])
             self.wake.clear()
 
@@ -287,7 +415,7 @@ class Monitor:
             rows, error, memory = [dict(r) for r in self.rows], self.error, dict(self.memory)
         now = time.monotonic()
         for r in rows:
-            p = self.pending.get(r["key"])
+            p = self.pending.get(self.pk(r["key"])) or (self.pending.get(self.pk("*")) if r["kind"] != "docker" else None)
             if isinstance(p, str):
                 r["state"], r["busy"] = "busy", True
                 r["sub"] = p if p.endswith("…") else f"{p[:1].upper()}{p[1:]}…"
@@ -385,8 +513,15 @@ def stat_lines(memory):
     return lines
 
 
-def panel_size(rows, scale, memory):
-    body = sum(SUB_H if r["level"] else ROW_H for r in rows) if rows else ROW_H
+def panel_size(rows, scale, memory, collapsed=None):
+    collapsed = collapsed or set()
+    body = 0
+    for g, _, grp in group_buckets(rows):
+        body += GROUP_H
+        if g not in collapsed:
+            body += sum(SUB_H if r["level"] else ROW_H for r in grp)
+    if not rows:
+        body = ROW_H
     return int(WIDTH * scale), int((TITLE_H + STAT_H * len(stat_lines(memory)) + 4 + body + BOTTOM) * scale)
 
 
@@ -444,7 +579,7 @@ def blink():
     return int(time.time() * 2) % 2 == 0
 
 
-def draw_mini(cr, k, rows, memory, pressed):
+def draw_mini(cr, k, rows, memory, pressed, remote_name=None):
     """The mini HUD: what's running or loaded (BUSY ones in orange), then VRAM, RAM, the cards and the CPU.
     Returns its width and click targets. Drawing on SCRATCH just measures it."""
     h = HUD_H * k
@@ -454,6 +589,8 @@ def draw_mini(cr, k, rows, memory, pressed):
     draw_expand_button(cr, x, cy - bs / 2, bs, pressed == "mini")
     targets = [(x, cy - bs / 2, bs, bs, "mini")]
     x += bs + 10 * k
+    if remote_name:
+        x += draw_text(cr, remote_name.upper(), x, cy, 11 * k, REMOTE, bold=True, centred=False) + 10 * k
     running = [r for r in rows if status_of(r)[0] in ("BUSY", "LOADED", "LOADING", "WAIT")
                and not (r["kind"] == "docker" and "ollama" in r.get("image", ""))]
     running.sort(key=lambda r: not r.get("work"))   # working ones first
@@ -542,8 +679,28 @@ def status_tip(row):
             "ON": "Running, not doing anything right now"}[word]
 
 
-def draw_panel(cr, w, h, scale, rows, error, memory, pressed):
-    """Draws the panel and returns its click targets as (x, y, w, h, target)."""
+def group_buckets(rows):
+    """Rows split into their groups in display order. Rows without a group go under 'other'."""
+    buckets = {g: [] for g in GROUP_ORDER}
+    for r in rows:
+        buckets[r.get("group") or "other"].append(r)
+    return [(g, GROUP_NAMES[g], buckets[g]) for g in GROUP_ORDER if buckets[g]]
+
+
+def group_active(rows):
+    """busy when any row is working, loaded when any is in memory or running, else None."""
+    words = {status_of(r)[0] for r in rows}
+    if words & {"BUSY", "WAIT", "LOADING"}:
+        return "busy"
+    if words & {"LOADED", "ON"}:
+        return "loaded"
+    return None
+
+
+def draw_panel(cr, w, h, scale, rows, error, memory, pressed, pc=None, collapsed=None):
+    """Draws the panel and returns its click targets as (x, y, w, h, target).
+    pc = {"name": PC shown, "remote": whether it's another PC, "next": the PC the switch button goes to}."""
+    pc = pc or {"name": "AI models", "remote": False, "next": None}
     k = scale
     targets = []
     cr.set_operator(cairo.OPERATOR_SOURCE)
@@ -553,12 +710,13 @@ def draw_panel(cr, w, h, scale, rows, error, memory, pressed):
     rounded_rect(cr, 1, 1, w - 2, h - 2, 16 * k)
     cr.set_source_rgb(*BG)
     cr.fill_preserve()
-    cr.set_line_width(2)
-    cr.set_source_rgb(*TRACK)
+    cr.set_line_width(3 if pc["remote"] else 2)
+    cr.set_source_rgb(*(REMOTE if pc["remote"] else TRACK))
     cr.stroke()
 
-    draw_text(cr, "AI MODELS", PAD * k, 18 * k, 15 * k, TEXT, bold=True, centred=False)
-    targets.append((PAD * k, 6 * k, 96 * k, 24 * k, "options"))
+    tw = draw_text(cr, pc["name"].upper(), PAD * k, 18 * k, 15 * k, REMOTE if pc["remote"] else TEXT, bold=True,
+                   centred=False, max_w=130 * k)
+    targets.append((PAD * k, 6 * k, tw, 24 * k, "options"))
     clock_w = draw_text(cr, time.strftime("%H:%M"), w - PAD * k, 18 * k, 15 * k, MUTED, bold=True, right=True)
     ox, oy, ow, oh = w - PAD * k - clock_w - 12 * k - 74 * k, 18 * k - 11 * k, 74 * k, 22 * k
     draw_pill(cr, ox, oy, ow, oh, "OPTIONS", tuple(c * 0.8 for c in BUSY_BTN) if pressed == "options" else BUSY_BTN)
@@ -569,6 +727,13 @@ def draw_panel(cr, w, h, scale, rows, error, memory, pressed):
     hx, hw = wx - 8 * k - 44 * k, 44 * k
     draw_pill(cr, hx, oy, hw, oh, "HUD", tuple(c * 0.8 for c in TRACK) if pressed == "hud" else TRACK, MUTED)
     targets.append((hx, oy, hw, oh, "hud"))
+    if pc["next"]:   # switch to the other PC (and back)
+        label = f"⇄ {pc['next'].upper()}"
+        sw = draw_text(SCRATCH, label, 0, 0, oh * 0.46, TEXT, bold=True) + 22 * k
+        sx = hx - 8 * k - sw
+        colour = (0.20, 0.27, 0.50) if not pc["remote"] else (0.16, 0.36, 0.30)
+        draw_pill(cr, sx, oy, sw, oh, label, tuple(c * 0.8 for c in colour) if pressed == "switch" else colour)
+        targets.append((sx, oy, sw, oh, "switch"))
     col_w = (w - 3 * PAD * k) / 2
     y = TITLE_H * k
     for left, right in stat_lines(memory):
@@ -579,68 +744,88 @@ def draw_panel(cr, w, h, scale, rows, error, memory, pressed):
     y += 4 * k
     header_end = y
 
+    collapsed = collapsed or set()
     if not rows:
         draw_text(cr, error or "No containers yet", w / 2, y + ROW_H * k / 2, 12 * k, MUTED, max_w=w - 2 * PAD * k)
-    for row in rows:
-        sub_row = bool(row["level"])
-        rh = (SUB_H if sub_row else ROW_H) * k
-        cy = y + rh / 2
-        if not sub_row and y > header_end:
+    for g, gname, grp in group_buckets(rows):
+        gh = GROUP_H * k
+        if y > header_end:
             cr.set_source_rgb(*TRACK)
             cr.rectangle(PAD * k, y, w - 2 * PAD * k, max(1, k))
             cr.fill()
-        indent = (PAD + 18 * row["level"]) * k
-        word, scolour, filled = status_of(row)
-        dot = (scolour if word in ("BUSY", "WAIT", "LOADING") else GREEN if row["state"] == "on"
-               else RED if row.get("failed") else MUTED)
+        gcy = y + gh / 2
+        active = group_active(grp)
+        dot = WORKING if active == "busy" else GREEN if active == "loaded" else MUTED
+        if active == "busy" and not blink():
+            dot = tuple(c * 0.6 for c in WORKING)
         cr.set_source_rgb(*dot)
-        cr.arc(indent + 5 * k, cy - 8 * k, (4 if sub_row else 5) * k, 0, 2 * math.pi)
+        cr.arc(PAD * k + 6 * k, gcy, 5 * k, 0, 2 * math.pi)
         cr.fill()
+        draw_text(cr, "▸" if g in collapsed else "▾", PAD * k + 17 * k, gcy, 12 * k, TEXT, bold=True, centred=False)
+        draw_text(cr, gname, PAD * k + 30 * k, gcy, 13 * k, TEXT, bold=True, centred=False)
+        n = sum(1 for r in grp if status_of(r)[0] in ("BUSY", "WAIT", "LOADING", "LOADED", "ON"))
+        if n:
+            draw_text(cr, f"{n}", w - PAD * k - 4 * k, gcy, 11 * k, MUTED, bold=True, right=True)
+        targets.append((0, y, w, gh, ("group", g)))
+        y += gh
+        if g in collapsed:
+            continue
+        for row in grp:
+            sub_row = bool(row["level"])
+            rh = (SUB_H if sub_row else ROW_H) * k
+            cy = y + rh / 2
+            indent = (PAD + 18 * row["level"]) * k
+            word, scolour, filled = status_of(row)
+            dot = (scolour if word in ("BUSY", "WAIT", "LOADING") else GREEN if row["state"] == "on"
+                   else RED if row.get("failed") else MUTED)
+            cr.set_source_rgb(*dot)
+            cr.arc(indent + 5 * k, cy - 8 * k, (4 if sub_row else 5) * k, 0, 2 * math.pi)
+            cr.fill()
 
-        # right: status pill, then the START / STOP button
-        bx = w - PAD * k - BTN_W * k
-        sx = bx - 6 * k - STATUS_W * k
-        py = cy - PILL_H * k / 2
-        label = button_label(row)
-        colour = BUSY_BTN if row.get("busy") else START_BTN if label == "START" else STOP_BTN
-        if pressed == ("toggle", row["key"]):
-            colour = tuple(c * 0.8 for c in colour)
-        draw_pill(cr, bx, py, BTN_W * k, PILL_H * k, label, colour)
-        targets.append((bx, py, BTN_W * k, PILL_H * k, ("toggle", row["key"])))
-        if filled:
-            draw_pill(cr, sx, py, STATUS_W * k, PILL_H * k, word, scolour, BG)
-        else:
-            draw_pill(cr, sx, py, STATUS_W * k, PILL_H * k, word, scolour,
-                      MUTED if word in ("OFF", "ON") else scolour, outline=True)
-        targets.append((sx, py, STATUS_W * k, PILL_H * k, ("status", row["key"])))
+            # right: status pill, then the START / STOP button
+            bx = w - PAD * k - BTN_W * k
+            sx = bx - 6 * k - STATUS_W * k
+            py = cy - PILL_H * k / 2
+            label = button_label(row)
+            colour = BUSY_BTN if row.get("busy") else START_BTN if label == "START" else STOP_BTN
+            if pressed == ("toggle", row["key"]):
+                colour = tuple(c * 0.8 for c in colour)
+            draw_pill(cr, bx, py, BTN_W * k, PILL_H * k, label, colour)
+            targets.append((bx, py, BTN_W * k, PILL_H * k, ("toggle", row["key"])))
+            if filled:
+                draw_pill(cr, sx, py, STATUS_W * k, PILL_H * k, word, scolour, BG)
+            else:
+                draw_pill(cr, sx, py, STATUS_W * k, PILL_H * k, word, scolour,
+                          MUTED if word in ("OFF", "ON") else scolour, outline=True)
+            targets.append((sx, py, STATUS_W * k, PILL_H * k, ("status", row["key"])))
 
-        # top line: plain-English name (a link to where it's used), ✎, then VRAM · RAM
-        top, bottom = cy - 8 * k, cy + 10 * k
-        mem = fmt_mem(row["vram"], row["ram"])
-        mem_w = draw_text(cr, mem, sx - 8 * k, top, 11 * k, TEXT, right=True) if mem else 0
-        name_x = indent + 16 * k
-        link = row_link(row)
-        size = 12 if sub_row else 13
-        tw = draw_text(cr, (row.get("title") or row["name"]) + (" ↗" if link else ""), name_x, top, size * k,
-                       LINK if link else TEXT, bold=True, centred=False,
-                       max_w=max(40 * k, sx - 8 * k - mem_w - 34 * k - name_x))
-        if link:
-            targets.append((name_x, top - 9 * k, tw, 18 * k, ("open", row["key"])))
-        pen_x = name_x + tw + 5 * k
-        draw_text(cr, "✎", pen_x, top, 12 * k, TEXT if pressed == ("label", row["key"]) else MUTED, centred=False)
-        targets.append((pen_x - 4 * k, top - 10 * k, 20 * k, 20 * k, ("label", row["key"])))
+            # top line: plain-English name (a link to where it's used), ✎, then VRAM · RAM
+            top, bottom = cy - 8 * k, cy + 10 * k
+            mem = fmt_mem(row["vram"], row["ram"])
+            mem_w = draw_text(cr, mem, sx - 8 * k, top, 11 * k, TEXT, right=True) if mem else 0
+            name_x = indent + 16 * k
+            link = row_link(row)
+            size = 12 if sub_row else 13
+            tw = draw_text(cr, (row.get("title") or row["name"]) + (" ↗" if link else ""), name_x, top, size * k,
+                           LINK if link else TEXT, bold=True, centred=False,
+                           max_w=max(40 * k, sx - 8 * k - mem_w - 34 * k - name_x))
+            if link:
+                targets.append((name_x, top - 9 * k, tw, 18 * k, ("open", row["key"])))
+            pen_x = name_x + tw + 5 * k
+            draw_text(cr, "✎", pen_x, top, 12 * k, TEXT if pressed == ("label", row["key"]) else MUTED, centred=False)
+            targets.append((pen_x - 4 * k, top - 10 * k, 20 * k, 20 * k, ("label", row["key"])))
 
-        # bottom line: what it's for, then the technical name and how it's doing
-        sub_x, sub_w = name_x, sx - 8 * k - name_x
-        if row.get("label"):
-            tag_w = draw_tag(cr, row["label"], name_x - 2 * k, bottom, 10 * k, max_w=sub_w * 0.84)
-            sub_x, sub_w = sub_x + tag_w + 4 * k, sub_w - tag_w - 4 * k
-        tech = " · ".join(t for t in ((row["name"] if row.get("title") not in (None, row["name"]) else ""),
-                                      row.get("sub") or "") if t)
-        draw_text(cr, tech, sub_x, bottom, 10 * k, RED if row.get("failed") else MUTED, centred=False,
-                  max_w=max(sub_w, 10 * k))
-        targets.append((0, y, w, rh, ("row", row["key"])))
-        y += rh
+            # bottom line: what it's for, then the technical name and how it's doing
+            sub_x, sub_w = name_x, sx - 8 * k - name_x
+            if row.get("label"):
+                tag_w = draw_tag(cr, row["label"], name_x - 2 * k, bottom, 10 * k, max_w=sub_w * 0.84)
+                sub_x, sub_w = sub_x + tag_w + 4 * k, sub_w - tag_w - 4 * k
+            tech = " · ".join(t for t in ((row["name"] if row.get("title") not in (None, row["name"]) else ""),
+                                          row.get("sub") or "") if t)
+            draw_text(cr, tech, sub_x, bottom, 10 * k, RED if row.get("failed") else MUTED, centred=False,
+                      max_w=max(sub_w, 10 * k))
+            targets.append((0, y, w, rh, ("row", row["key"])))
+            y += rh
     return targets
 
 
@@ -775,6 +960,7 @@ class App(Gtk.Window):
         self.targets = []
         self.size = None
         self.cursor = None
+        self.collapsed = set()   # group names collapsed down to their header
         self.monitor = Monitor(load_settings(), self.on_update)
         s = self.monitor.settings
 
@@ -812,9 +998,9 @@ class App(Gtk.Window):
         s = self.monitor.settings
         if s["mini"]:
             k = s["hud_scale"]
-            size = (draw_mini(SCRATCH, k, rows, memory, None)[0], int(HUD_H * k))
+            size = (draw_mini(SCRATCH, k, rows, memory, None, self.monitor.view)[0], int(HUD_H * k))
         else:
-            size = panel_size(rows, s["scale"], memory)
+            size = panel_size(rows, s["scale"], memory, self.collapsed)
         if size != self.size:
             self.size = size
             self.set_size_request(*size)
@@ -850,10 +1036,18 @@ class App(Gtk.Window):
             cr.set_line_width(1.5)
             cr.set_source_rgba(*TRACK, 0.8)
             cr.stroke()
-            self.targets = draw_mini(cr, self.monitor.settings["hud_scale"], rows, memory, self.pressed)[1]
+            self.targets = draw_mini(cr, self.monitor.settings["hud_scale"], rows, memory, self.pressed,
+                                     self.monitor.view)[1]
             return False
-        self.targets = draw_panel(cr, *self.size, self.monitor.settings["scale"], rows, error, memory, self.pressed)
+        self.targets = draw_panel(cr, *self.size, self.monitor.settings["scale"], rows, error, memory, self.pressed,
+                                  self.pc(), self.collapsed)
         return False
+
+    def pc(self):
+        """Which PC the panel shows, and where the switch button goes next (None without other PCs)."""
+        m = self.monitor
+        return {"name": m.view_name(), "remote": bool(m.view),
+                "next": (m.next_view() or m.me) if m.peers else None}
 
     def hit(self, x, y):
         """The first click target under the point, buttons before the rows they sit on."""
@@ -867,7 +1061,7 @@ class App(Gtk.Window):
 
     def on_motion(self, _, event):
         target = self.hit(event.x, event.y)
-        name = "pointer" if target in ("options", "hub", "hud", "mini") or (target and target[0] in ("toggle", "open", "label")) else "default"
+        name = "pointer" if target in ("options", "hub", "hud", "mini", "switch") or (target and target[0] in ("toggle", "open", "label", "group")) else "default"
         if name != self.cursor:
             self.cursor = name
             self.get_window().set_cursor(Gdk.Cursor.new_from_name(self.get_display(), name))
@@ -883,9 +1077,18 @@ class App(Gtk.Window):
         if target == "mini":
             tooltip.set_text("Back to the full panel")
             return True
+        if target == "switch":
+            nxt = self.pc()["next"]
+            tooltip.set_text(f"Show the {nxt}: its models, START / STOP and temperatures\n"
+                             f"(now showing the {self.monitor.view_name()})")
+            return True
         if target == "hub":
             tooltip.set_text(f"Open the AI Hub web page\n{self.monitor.settings['hub_url']}\n"
                              "Both PCs' models, GPU temperatures and the docs")
+            return True
+        if target and target[0] == "group":
+            gname = GROUP_NAMES.get(target[1], target[1])
+            tooltip.set_text(f"{gname} models — click to collapse or expand")
             return True
         if not target:
             return False
@@ -923,7 +1126,7 @@ class App(Gtk.Window):
         if event.button != 1:
             return
         self.press_target = self.hit(event.x, event.y)
-        if self.press_target in ("options", "hub", "hud", "mini") or (self.press_target and self.press_target[0] in ("toggle", "open", "label")):
+        if self.press_target in ("options", "hub", "hud", "mini", "switch") or (self.press_target and self.press_target[0] in ("toggle", "open", "label", "group")):
             self.pressed = self.press_target
             self.queue_draw()
         else:
@@ -945,8 +1148,14 @@ class App(Gtk.Window):
         if target in ("hud", "mini"):
             self.toggle_mini()
             return
+        if target == "switch":
+            self.monitor.switch_view()
+            return
         if target[0] == "label":
             GLib.idle_add(self.edit_label, target[1])
+            return
+        if target[0] == "group":
+            self.toggle_group(target[1])
             return
         row = self.row(target[1])
         if not row or row.get("busy"):
@@ -970,6 +1179,10 @@ class App(Gtk.Window):
     def show_menu(self, event):
         menu = Gtk.Menu()
         rows = self.monitor.snapshot()[0]
+        if self.pc()["next"]:
+            item = Gtk.MenuItem(label=f"⇄ Show the {self.pc()['next']}")
+            item.connect("activate", lambda _: self.monitor.switch_view())
+            menu.append(item)
         item = Gtk.MenuItem(label=f"Open AI Hub web page  ·  {self.monitor.settings['hub_url']}")
         item.connect("activate", lambda _: open_uri(self.monitor.settings["hub_url"]))
         menu.append(item)
@@ -985,7 +1198,7 @@ class App(Gtk.Window):
         loaded = [r for r in rows if r["kind"] != "docker" and r["state"] == "on"]
         item = Gtk.MenuItem(label="Unload all models" if loaded else "No models loaded")
         item.set_sensitive(bool(loaded))
-        item.connect("activate", lambda _: [self.monitor.act(r, starting=False) for r in loaded])
+        item.connect("activate", lambda _: self.monitor.unload_all(loaded))
         menu.append(item)
         menu.append(Gtk.SeparatorMenuItem())
         for label, action in (("Full panel" if self.monitor.settings["mini"] else "Mini HUD", self.toggle_mini),
@@ -998,7 +1211,7 @@ class App(Gtk.Window):
 
     def open_settings(self):
         s = self.monitor.settings
-        dialog = SettingsDialog(self, s, self.monitor.snapshot()[0])
+        dialog = SettingsDialog(self, s, [] if self.monitor.view else self.monitor.snapshot()[0])
         if dialog.run() == Gtk.ResponseType.OK:
             s.update(dialog.values())
             self.set_keep_above(s["on_top"])
@@ -1041,13 +1254,15 @@ class App(Gtk.Window):
         dialog.show_all()
         if dialog.run() == Gtk.ResponseType.OK:
             try:
-                text = set_label(key, entry.get_text())
+                text = self.monitor.set_label(key, entry.get_text())
+                if self.monitor.view:   # the other PC's hub answers "Saved: …"; show the text itself
+                    text = " ".join(entry.get_text().split())[:LABEL_MAX]
                 with self.monitor.lock:   # show it now rather than at the next refresh
                     for r in self.monitor.rows:
                         if r["key"] == key:
                             r["label"] = text
                 self.on_update()
-            except (OSError, ValueError) as e:
+            except (OSError, ValueError, RuntimeError) as e:
                 err = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.ERROR,
                                         buttons=Gtk.ButtonsType.CLOSE, text=f"Couldn't save it: {e}")
                 err.run()
@@ -1066,6 +1281,14 @@ class App(Gtk.Window):
         if x is not None:
             self.move(x, y)
         save_settings(s)
+
+    def toggle_group(self, group):
+        """Collapses a group down to its header, or expands it back."""
+        if group in self.collapsed:
+            self.collapsed.remove(group)
+        else:
+            self.collapsed.add(group)
+        self.on_update()
 
     def on_configure(self, *_):
         self.queue_save()
