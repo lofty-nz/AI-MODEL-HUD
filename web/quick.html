@@ -252,7 +252,8 @@ function showLogin(again) {
   $("#ft").hidden = true;
   if (again) {   // the hub took the password, but the frame still isn't logged in: the browser won't share it here
     msg(`You're logged in, but this browser won't share the AI Hub login with this page's address.
-      <a href="./" target="_blank" rel="noopener">Open AI Hub</a> instead, or open this page by its …testtagrepair.co.nz name.`);
+      <a href="./" target="_blank" rel="noopener">Open AI Hub</a> instead, or open this page by an address on the same site as the hub
+      (the hub's quick_hubs setting).`);
     return;
   }
   $("#m").innerHTML = `<form class="login" id="lf">
